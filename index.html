@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-EXAONE 2.5 · reasoning_effort 비교</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1d1f24; --muted: #6b6f78; --line: #e3e1da;
+    --max: #7a3cff; --high: #e0661b; --low: #1f8a5b; --bad: #c4352b; --ok: #1f8a5b; --warn: #b7791f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 "Pretendard", "Apple SD Gothic Neo", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { max-width: 1240px; margin: 0 auto; padding: 48px 24px 8px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h1 code { font-size: 0.8em; background: #ebe8df; padding: 2px 8px; border-radius: 6px; }
+  .lede { color: var(--muted); max-width: 760px; margin: 0; }
+  .lede a { color: inherit; }
+  main { max-width: 1240px; margin: 0 auto; padding: 8px 24px 64px; }
+  section { margin-top: 44px; }
+  h2 { font-size: 21px; margin: 0 0 4px; }
+  .prompt { color: var(--muted); font-size: 13.5px; margin: 0 0 16px; }
+  .prompt q { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    display: flex; flex-direction: column; }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 8px; gap: 8px; }
+  .effort { font-weight: 700; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 999px; color: #fff; }
+  .effort.max { background: var(--max); } .effort.high { background: var(--high); } .effort.low { background: var(--low); }
+  .verdict { font-size: 13px; font-weight: 600; }
+  .verdict.bad { color: var(--bad); } .verdict.ok { color: var(--ok); } .verdict.warn { color: var(--warn); }
+  .stage { position: relative; aspect-ratio: 16 / 10; background: #dfe6ea; border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line); }
+  .stage img, .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+  .stage img { object-fit: contain; background: #fff; }
+  .stage img.cover { object-fit: cover; }
+  .stage .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    color: var(--muted); padding: 24px; font-size: 14px; background: repeating-linear-gradient(45deg,#f1efe9 0 12px,#ebe8e0 12px 24px); }
+  .play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: rgba(20, 22, 28, 0.82); color: #fff; border: 0; border-radius: 999px; padding: 10px 18px;
+    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .play:hover { background: rgba(20, 22, 28, 0.95); }
+  .toggle { display: flex; gap: 4px; padding: 10px 14px 0; }
+  .toggle button { font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: #faf9f6;
+    border-radius: 8px; padding: 4px 10px; cursor: pointer; color: var(--muted); }
+  .toggle button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 12px 14px 4px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 11.5px; color: var(--muted); }
+  .bar { height: 6px; border-radius: 3px; background: #ece9e1; margin: 6px 14px 0; overflow: hidden; display: flex; }
+  .bar i { display: block; height: 100%; }
+  .bar .r { background: #b9b3a5; } .bar .c { background: var(--ink); }
+  .barlegend { font-size: 11.5px; color: var(--muted); padding: 2px 14px 0; }
+  .notes { padding: 8px 14px 4px; margin: 0; font-size: 13.5px; }
+  .notes li { margin: 2px 0 2px 16px; }
+  .links { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 14px 14px; margin-top: auto; font-size: 13px; }
+  .links a, .links button { color: var(--ink); background: none; border: 0; padding: 0; font: inherit; font-size: 13px;
+    text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #bbb; cursor: pointer; }
+  dialog { width: min(900px, 92vw); max-height: 86vh; border: 0; border-radius: 14px; padding: 0; }
+  dialog::backdrop { background: rgba(10, 12, 16, 0.55); }
+  .dlghead { position: sticky; top: 0; background: #fff; display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .dlghead button { font: inherit; border: 1px solid var(--line); background: #faf9f6; border-radius: 8px; padding: 4px 12px; cursor: pointer; }
+  dialog pre { margin: 0; padding: 16px 18px; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .takeaways { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; }
+  .takeaways ul { margin: 0; padding-left: 18px; }
+  .takeaways li { margin: 6px 0; }
+  .scoregrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 960px) { .scoregrid { grid-template-columns: 1fr; } }
+  .scorecard, .timecard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; overflow-x: auto; }
+  .scorecard h3 { margin: 0 0 10px; font-size: 16px; }
+  table.score { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.score th, table.score td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: center; }
+  table.score th:first-child, table.score td:first-child { text-align: left; }
+  table.score thead th { font-size: 12px; }
+  table.score td.crit small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+  .dots { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .s0 { color: #b3aea3; } .s1, .s2 { color: var(--bad); } .s3 { color: var(--warn); } .s4, .s5 { color: var(--ok); }
+  table.score tfoot td { border-bottom: 0; font-weight: 700; font-size: 15px; padding-top: 10px; }
+  table.score tr.timerow td { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .best { outline: 2px solid var(--ok); outline-offset: -2px; border-radius: 6px; }
+  .trow { display: grid; grid-template-columns: 150px 1fr 90px; align-items: center; gap: 12px; padding: 6px 0; }
+  .trow .lbl { font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
+  .trow .lbl .effort { font-size: 11px; padding: 1px 8px; }
+  .track { position: relative; height: 22px; background: #f1efe9; border-radius: 6px; overflow: hidden; }
+  .fill { position: absolute; inset: 0 auto 0 0; background: var(--ink); border-radius: 6px; overflow: hidden; }
+  .fill .rz { position: absolute; inset: 0 auto 0 0; background: #b9b3a5; }
+  .fill.cut { background: repeating-linear-gradient(45deg, var(--bad) 0 6px, #d9665d 6px 12px); }
+  .trow .val { font-variant-numeric: tabular-nums; font-size: 13.5px; font-weight: 600; text-align: right; }
+  .tgroup + .tgroup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .tgroup h4 { margin: 0 0 4px; font-size: 14px; }
+  .axis { display: grid; grid-template-columns: 150px 1fr 90px; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .axis div { display: flex; justify-content: space-between; }
+  footer { max-width: 1240px; margin: 0 auto; padding: 0 24px 48px; color: var(--muted); font-size: 13px; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>K-EXAONE 2.5 · <code>reasoning_effort</code> 비교</h1>
+  <p class="lede">LG AI연구원 <a href="https://docs.exaone.ai/ko/docs/k-exaone-2.5">EXAONE API</a>의 <code>k-exaone_v2.5</code>에
+  같은 과제를 <b>max / high / low</b>로 한 번씩 시켜본 결과입니다. 과제당 1회 실행이라 통계가 아니라 인상 비교용입니다. (2026-11-10)</p>
+</header>
+
+<main>
+  <section id="score">
+    <h2>📊 평가표</h2>
+    <p class="prompt">기준별 1~5점 (5 = 매우 좋음). 결과물과 코드를 직접 확인해 매긴 <b>주관적 점수</b>입니다. 결과가 없으면 0점.</p>
+    <div class="scoregrid">
+      <div class="scorecard" data-score="pelican"></div>
+      <div class="scorecard" data-score="windmill"></div>
+    </div>
+  </section>
+
+  <section id="time">
+    <h2>⏱️ 생성 시간</h2>
+    <p class="prompt">요청부터 응답 완료까지 걸린 실제 시간 (스트리밍). 막대 안 회색은 추론 토큰 비율.</p>
+    <div class="timecard" id="timechart"></div>
+  </section>
+
+  <section id="pelican">
+    <h2>🚲 자전거 타는 펠리컨 (SVG)</h2>
+    <p class="prompt">프롬프트: <q>Generate an SVG of a pelican riding a bicycle</q></p>
+    <div class="grid" data-task="pelican"></div>
+  </section>
+
+  <section id="windmill">
+    <h2>🏡 풍차 3D (Three.js)</h2>
+    <p class="prompt">프롬프트: <q>index.html 하나로 Three.js 3D 장면 — 언덕 위 풍차, 회전하는 날개 4장, 나무 5그루, 그림자, OrbitControls …</q>
+      (<a href="prompts/windmill.txt">전문</a>) · 카드를 눌러 실제 장면을 실행할 수 있어요. 드래그로 회전.</p>
+    <div class="grid" data-task="windmill"></div>
+  </section>
+
+  <section>
+    <h2>정리</h2>
+    <div class="takeaways">
+      <ul>
+        <li><b>느림</b> — 가장 빨라도 10분, 대부분 20~30분. 출력의 83~93%가 추론 토큰이고 속도는 약 25 토큰/초.</li>
+        <li><b>effort를 낮춰도 추론량이 크게 줄지 않음</b> — <code>low</code>도 추론 토큰 2~4만 개. 오히려 <code>low</code> 결과가 가장 나았음.</li>
+        <li><b>꼼꼼하지만 마무리가 약함</b> — 3D 결과 3개 중 2개가 <code>import</code> 누락, 캔버스 미연결 같은 기본 실수로 빈 화면.</li>
+        <li><b>SVG 그림은 준수</b> — 펠리컨이 자전거에 제대로 올라탄 그림을 두 번 모두 그림.</li>
+        <li><b>API 운영</b> — 비스트리밍은 600초, 스트리밍은 약 30분에 끊김. 초당 1회 요청 제한.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  원본 데이터·추론 전문·재현 스크립트: <a href="https://github.com/yalex-kim/k-exaone-bench">github.com/yalex-kim/k-exaone-bench</a>
+</footer>
+
+<dialog id="dlg">
+  <div class="dlghead"><b id="dlgtitle"></b><button onclick="dlg.close()">닫기</button></div>
+  <pre id="dlgbody">불러오는 중…</pre>
+</dialog>
+
+<script>
+const RUNS = {
+  pelican: [
+    { effort: 'max', time: '30분+ (끊김)', out: null, reasoning: null, verdict: ['bad', '결과 없음'],
+      notes: ['SVG 대신 CSS 버튼이 있는 HTML 페이지를 쓰기 시작', '추론 147,000자 후 서버 30분 제한으로 스트림 종료'] },
+    { effort: 'high', time: '10분', out: 22210, reasoning: 19287, verdict: ['ok', '그림 완성'],
+      svg: 'results/pelican-high/pelican.svg',
+      notes: ['자세와 주머니 부리가 좋음', '자전거 프레임이 비정상적으로 길쭉함'] },
+    { effort: 'low', time: '21분', out: 43536, reasoning: 40341, verdict: ['ok', '그림 완성 · 최고'],
+      svg: 'results/pelican-low/pelican.svg',
+      notes: ['가장 귀엽고 완성도 높음', '왼쪽 위 엉뚱한 바퀴 조각', 'path 문법 오류 1곳(부리 일부 누락)'] },
+  ],
+  windmill: [
+    { effort: 'max', time: '18분', out: 30564, reasoning: 25280, verdict: ['bad', '원본 빈 화면'],
+      original: 'results/windmill-max/index.html', fixed: 'results/windmill-max/index.fixed.html',
+      shot: 'results/windmill-max/screenshot.fixed.png',
+      notes: ['import 문 누락 → THREE is not defined', 'group 변수 미선언', '고치면 꽤 괜찮음 (회전축 높이는 틀림)'] },
+    { effort: 'high', time: '30분', out: 39792, reasoning: 36582, verdict: ['bad', '원본 빈 화면'],
+      original: 'results/windmill-high/index.html', fixed: 'results/windmill-high/index.fixed.html',
+      shot: 'results/windmill-high/screenshot.fixed.png',
+      notes: ['렌더러를 화면 &lt;canvas&gt;에 연결 안 함', '고쳐도 지붕 높이 0(원판), 축·날개 배치 엉망'] },
+    { effort: 'low', time: '20분', out: 26460, reasoning: 22160, verdict: ['ok', '그대로 동작'],
+      original: 'results/windmill-low/index.html',
+      shot: 'results/windmill-low/screenshot.png',
+      notes: ['유일하게 수정 없이 동작', '나무·그림자 좋음', '날개가 지붕 옆에 붙어 겹침'] },
+  ],
+};
+
+const fmt = n => n == null ? '–' : n.toLocaleString('ko-KR');
+const dlg = document.getElementById('dlg');
+
+async function openText(title, url) {
+  document.getElementById('dlgtitle').textContent = title;
+  const body = document.getElementById('dlgbody');
+  body.textContent = '불러오는 중…';
+  dlg.showModal();
+  try {
+    const r = await fetch(url);
+    body.textContent = r.ok ? await r.text() : '불러오지 못했습니다 (' + r.status + ')';
+  } catch (e) { body.textContent = '불러오지 못했습니다: ' + e; }
+}
+
+function card(task, run) {
+  const el = document.createElement('article');
+  el.className = 'card';
+  const dir = `results/${task}-${run.effort}`;
+  const pct = run.out ? Math.round(run.reasoning / run.out * 100) : null;
+
+  el.innerHTML = `
+    <div class="head">
+      <span class="effort ${run.effort}">${run.effort}</span>
+      <span class="verdict ${run.verdict[0]}">${run.verdict[1]}</span>
+    </div>
+    ${run.fixed ? `<div class="toggle" role="group" aria-label="버전">
+        <button aria-pressed="true" data-v="fixed">버그 수정본</button>
+        <button aria-pressed="false" data-v="original">모델 원본</button></div>` : ''}
+    <div class="stage" style="${run.fixed ? 'margin-top:10px' : ''}"></div>
+    <div class="stats">
+      <div class="stat"><b>${run.time}</b><span>소요 시간</span></div>
+      <div class="stat"><b>${fmt(run.out)}</b><span>출력 토큰</span></div>
+      <div class="stat"><b>${pct == null ? '–' : pct + '%'}</b><span>추론 비율</span></div>
+    </div>
+    ${pct == null ? '' : `<div class="bar"><i class="r" style="width:${pct}%"></i><i class="c" style="width:${100 - pct}%"></i></div>
+      <div class="barlegend">회색 추론 · 검정 답변</div>`}
+    <ul class="notes">${run.notes.map(n => `<li>${n}</li>`).join('')}</ul>
+    <div class="links">
+      <button data-open="reasoning">추론 전문</button>
+      <button data-open="response">답변 전문</button>
+      ${run.svg ? `<a href="${run.svg}" target="_blank">SVG 열기</a>` : ''}
+      ${run.original ? `<a href="${run.original}" target="_blank">원본 새 창</a>` : ''}
+      ${run.fixed ? `<a href="${run.fixed}" target="_blank">수정본 새 창</a>` : ''}
+    </div>`;
+
+  const stage = el.querySelector('.stage');
+  let version = run.fixed ? 'fixed' : 'original';
+
+  function poster() {
+    if (task === 'pelican') {
+      stage.innerHTML = run.svg
+        ? `<img src="${run.svg}" alt="pelican ${run.effort}">`
+        : `<div class="empty">출력된 SVG 없음<br>(30분 제한으로 끊김)</div>`;
+      return;
+    }
+    const isBlank = version === 'original' && run.fixed;
+    stage.innerHTML = isBlank
+      ? `<div class="empty">이 원본은 실행해도 빈 화면입니다.<br>직접 확인하려면 실행해 보세요.</div>`
+      : `<img class="cover" src="${run.shot}" alt="windmill ${run.effort}">`;
+    const b = document.createElement('button');
+    b.className = 'play';
+    b.textContent = '▶ 3D 실행';
+    b.onclick = () => { stage.innerHTML = `<iframe src="${run[version]}" title="windmill ${run.effort}" loading="lazy"></iframe>`; };
+    stage.appendChild(b);
+  }
+  poster();
+
+  el.querySelectorAll('.toggle button').forEach(btn => btn.onclick = () => {
+    version = btn.dataset.v;
+    el.querySelectorAll('.toggle button').forEach(x => x.setAttribute('aria-pressed', String(x === btn)));
+    poster();
+  });
+  el.querySelectorAll('[data-open]').forEach(btn => btn.onclick = () => {
+    const kind = btn.dataset.open;
+    openText(`${task} · ${run.effort} · ${kind === 'reasoning' ? '추론' : '답변'}`,
+      `${dir}/${kind === 'reasoning' ? 'reasoning.txt' : 'response.md'}`);
+  });
+  return el;
+}
+
+const SECS = { pelican: { max: 1801, high: 625, low: 1261 }, windmill: { max: 1095, high: 1779, low: 1222 } };
+const CUT = { pelican: { max: true } };
+
+const SCORES = {
+  pelican: {
+    title: '🚲 펠리컨',
+    criteria: [
+      ['SVG 유효성', '오류 없이 렌더링되는가'],
+      ['펠리컨다움', '주머니 부리 등 펠리컨으로 보이는가'],
+      ['자전거 구조', '바퀴·프레임·페달이 자전거다운가'],
+      ['탑승 자세', '실제로 자전거를 타고 있는가'],
+      ['완성도·디테일', '배경, 장식, 불필요한 요소 없음'],
+    ],
+    scores: { max: [0, 0, 0, 0, 0], high: [5, 4, 2, 4, 3], low: [3, 5, 5, 4, 4] },
+  },
+  windmill: {
+    title: '🏡 풍차 3D',
+    criteria: [
+      ['원본 실행', '수정 없이 화면이 나오는가'],
+      ['요구사항 충족', '몸통·원뿔 지붕·날개 4장·나무 5그루·그림자·조작'],
+      ['공간 배치', '축이 앞으로 돌출, 날개가 몸통과 안 겹침'],
+      ['시각 품질', '보기 좋은 장면인가 (수정본 기준)'],
+      ['코드 품질', '구조, 기본 실수 여부'],
+    ],
+    scores: { max: [1, 5, 3, 4, 2], high: [1, 2, 1, 2, 2], low: [5, 4, 2, 4, 4] },
+  },
+};
+const EFFORTS = ['max', 'high', 'low'];
+const mmss = s => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
+
+document.querySelectorAll('[data-score]').forEach(box => {
+  const task = box.dataset.score, S = SCORES[task];
+  const totals = EFFORTS.map(e => S.scores[e].reduce((a, b) => a + b, 0));
+  const best = Math.max(...totals);
+  const outOf = S.criteria.length * 5;
+  box.innerHTML = `<h3>${S.title}</h3>
+    <table class="score">
+      <thead><tr><th>기준</th>${EFFORTS.map(e => `<th><span class="effort ${e}">${e}</span></th>`).join('')}</tr></thead>
+      <tbody>${S.criteria.map(([name, desc], i) => `<tr><td class="crit">${name}<small>${desc}</small></td>${
+        EFFORTS.map(e => { const v = S.scores[e][i]; return `<td class="dots s${v}">${v}</td>`; }).join('')}</tr>`).join('')}
+        <tr class="timerow"><td>생성 시간</td>${EFFORTS.map(e => `<td>${mmss(SECS[task][e])}${CUT[task]?.[e] ? ' ✂︎' : ''}</td>`).join('')}</tr>
+      </tbody>
+      <tfoot><tr><td>합계 / ${outOf}</td>${totals.map(t => `<td class="${t === best ? 'best' : ''}">${t}</td>`).join('')}</tr></tfoot>
+    </table>`;
+});
+
+(function timeChart() {
+  const box = document.getElementById('timechart');
+  const maxS = 1800;
+  const groups = [['pelican', '🚲 펠리컨'], ['windmill', '🏡 풍차 3D']].map(([task, label]) => {
+    const rows = RUNS[task].map(run => {
+      const s = SECS[task][run.effort];
+      const cut = CUT[task]?.[run.effort];
+      const pct = run.out ? run.reasoning / run.out * 100 : 0;
+      return `<div class="trow">
+        <div class="lbl"><span class="effort ${run.effort}">${run.effort}</span></div>
+        <div class="track" title="${mmss(s)}${cut ? ' — 서버 30분 제한으로 끊김' : ''}">
+          <div class="fill ${cut ? 'cut' : ''}" style="width:${Math.min(s / maxS, 1) * 100}%">${cut ? '' : `<div class="rz" style="width:${pct}%"></div>`}</div>
+        </div>
+        <div class="val">${mmss(s)}${cut ? ' ✂︎' : ''}</div></div>`;
+    }).join('');
+    return `<div class="tgroup"><h4>${label}</h4>${rows}</div>`;
+  }).join('');
+  box.innerHTML = groups + `<div class="axis"><span></span><div><span>0</span><span>10분</span><span>20분</span><span>30분</span></div><span></span></div>
+    <p class="prompt" style="margin:10px 0 0">✂︎ = 서버 30분 제한으로 응답이 끊겨 결과 없음 · 참고: 비스트리밍 요청은 600초에 server_error</p>`;
+})();
+
+document.querySelectorAll('.grid').forEach(grid => {
+  const task = grid.dataset.task;
+  RUNS[task].forEach(run => grid.appendChild(card(task, run)));
+});
+</script>
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 LG AI연구원 [EXAONE API](https://docs.exaone.ai/ko/docs/k-exaone-2.5)의 `k-exaone_v2.5` 모델을 두 가지 생성 과제로, `reasoning_effort`(`max` / `high` / `low`)를 바꿔가며 돌려본 결과입니다.
 
+👉 **웹에서 비교해 보기: https://yalex-kim.github.io/k-exaone-bench/** (평가표 · 생성 시간 · 결과물 · 3D 장면 실행 · 추론 전문)
+
 - 테스트 일자: 2026-11-10
 - 호출 방식: `POST https://api.exaone.ai/v1/chat/completions`, `stream: true`, `max_tokens: 64000`, 그 외 파라미터는 기본값
 - 과제당 1회씩만 실행한 결과라 통계적 의미는 없습니다. 인상 비교용입니다.
