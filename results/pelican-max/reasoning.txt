@@ -1,0 +1,1884 @@
+The request: "Generate an SVG of a pelican riding a bicycle". I should build a single-file interactive HTML page that generates an SVG of a pelican riding a bicycle. To be safe and genuinely functional, I'll make it interactive: a page with a live SVG rendered from JS, with controls (pedal speed animation, colors, download SVG, copy SVG code, size), plus a built-in sample and maybe file picker? The constraint says "If the request involves the user's own file, read it with a file picker or drag-and-drop and also include a built-in sample." The request doesn't involve a user file, so no file picker needed.
+
+Requirements:
+- One complete .html file, all CSS/JS inline, no CDN/network.
+- Animation via requestAnimationFrame or setInterval.
+- Edge cases: empty/invalid input, repeated clicks, resize.
+- Finished look, consistent theme, clear hierarchy, visible feedback on state changes.
+- Clean code: named constants, small functions, no dead code.
+
+Plan: Build an interactive SVG generator:
+- A pelican on a bicycle drawn with SVG paths (pelican with big beak pouch, body, wing, legs, head; bicycle with two wheels, frame, handlebars, seat, pedals, chain).
+- Controls: pedal speed slider (animation speed), hue color picker (recolor the pelican + bike theme), toggle animation, wheel size? Keep it reasonable: speed, color theme, "riding" toggle, download SVG, copy SVG markup, and maybe a "pose" toggle? Keep it focused but rich.
+
+Let me design the SVG geometry carefully so it looks like a pelican riding a bicycle.
+
+Canvas: viewBox 0 0 800 600. Ground line at y=520.
+
+Bicycle: two wheels, radius 70, centers at (280, 450) and (560, 450). Frame: diamond-ish. Let's define:
+- Rear wheel center R = (270, 440), front wheel center F = (550, 440), radius 72.
+- Bottom bracket (pedals) at (380, 440).
+- Seat at (300, 300) — saddle.
+- Handlebar at (520, 250) roughly (grip point (530, 250)).
+- Head tube from (500, 440) up to (520, 280)? Let's simplify: fork from front hub up to head tube top, then top tube from head tube to seat tube top.
+
+Frame lines:
+- chainstay: rear hub (270,440) → bottom bracket (380,440)
+- seat stay: rear hub → seat top (300,300)
+- seat tube: bottom bracket → seat top
+- down tube: bottom bracket → head tube bottom (500, 440)? Actually down tube goes from BB up to head tube bottom.
+- top tube: seat top → head tube top (515, 265)
+- fork: head tube bottom (505, 400) → front hub (550, 440)
+- handlebar: from head tube top (515, 265) stem up to (520, 235), then bar curve.
+
+Pelican: sitting on the seat? A pelican riding a bike — pelican perched on the saddle, legs on pedals? Realistically the pelican sits on the seat with feet reaching pedals... but pedaling with wings? Cute: pelican sits on the saddle, its legs/feet on the pedals, one wing on the handlebar.
+
+Simplify: Pelican body positioned above the rear wheel and seat, head turned forward, big pouch beak pointing forward, wings tucked, legs down to pedals at bottom of a circling motion (animate pedal rotation → legs cycle). Actually simpler: animate the pedal crank rotation and have the pelican's legs move with it, plus wheel spokes rotating. That's a nice animation.
+
+Let's do: wheel rotation via rotating a group with transform-origin at wheel center, using CSS animation or JS rAF updating transform attribute. Better: use rAF and set transform attribute on <g> elements: `rotate(angle, cx, cy)`. Since we generate SVG in JS, we can keep references.
+
+Pelican geometry (local coords, before transform). Let's place pelican in a group translated to sit on the seat: seat top at (300, 300). Pelican sits with belly around y=300ish, body center (300, 250)? Hmm, pelican should be above the bike, positioned roughly over the seat and slightly forward, head forward (to the right).
+
+Let me lay out pelican in absolute coordinates roughly:
+- Body: ellipse-ish blob centered (300, 265), rx 62, ry 46, rotated slightly.
+- Tail: behind, small triangle at left.
+- Neck+head: from body front-top (350, 235) curving up-right to head at (415, 215); head circle r 26 at (420, 215).
+- Beak: long, pointing right and slightly down: from head front (440, 218) to (475, 225) with lower pouch bulge below to (465, 250). Big pouch hanging below lower mandible.
+- Eye: small dark circle at (415, 205).
+- Wing: folded wing shape on the body's side: path from (315, 240) curving down to (300, 300) etc.
+- Legs: from body bottom (310, 300) down to feet on pedals. Crank: bottom bracket at (380, 440), crank arm length 90 with pedal at radius 90. Hmm, pelican's feet need to reach pedals — the pelican sits on the seat at (300,300) and feet reach down to pedals at radius ~90 around BB (380,440)? That's a long reach: from body bottom ~ (320, 310) to pedal at (380±, 440±90). Distance ~ 150-200px. That's fine visually if I draw a leg going down-forward.
+
+Actually maybe simpler and cuter: the pelican's legs dangle and swing with the crank, feet on pedals. Legs: two lines from body bottom area to pedal positions, animated with crank angle. Left leg and right leg slightly different offset (parallax).
+
+Let me define crank: BB at (380, 440). Crank radius 95. Pedal positions at angle θ: (380 + 95cosθ, 440 - 95 sinθ) using SVG y-down, θ=0 → right, θ=90° → up (y smaller). Wait with y down, up is negative offset, so pedal = (380 + 95cosθ, 440 + 95 sinθ) gives θ=-90 → y = 440-95 up. Let's use pedal = (380 + 95*cos(θ), 440 - 95*sin(θ)) so θ=90° is top (y=345), θ=270 is bottom (535). Hmm bottom pedal at y=535 is below ground line 520... Ground: wheels radius 72 centered at y=440, so wheel bottom = 512. Pedal at bottom would be at 535, below ground — that's wrong; crank radius must be less than wheel radius-ish. Real bikes: crank radius ~ 1/4 wheel diameter... BB at (380,440) is at the same height as wheel centers, and wheel bottom at 512. A pedal at bottom would be at 535 → below ground. Real bikes have BB lower than wheel center: BB height above ground ~ 270mm vs wheel radius 340mm → BB is inside wheel radius. So put BB at y=380 with wheel centers y=440, radius 72 → BB is 60 above center, wheel bottom 512, pedal bottom = 380+95 = 475 < 512. Good.
+
+So BB = (380, 380). Chainring circle r=45 at BB. Seat top (300, 300) — seat tube from BB (380,380) to (300,300). Rear hub (270,440): chainstay from (270,440) to (380,380); seat stay from (270,440) to (300,300). Front hub (550,440); fork from head tube bottom to (550,440). Head tube top (515, 265)? Top tube from seat top (300,300) to head tube top... Let's make head tube from (512, 268) to (508, 340) (slightly raked). Fork from (508,340) → (550,440). Handlebar at top: stem from (512,268) up to (516, 232), bar horizontal-ish from (496,232) to (536,232) with slight curve and grips.
+
+Pelican sits on seat at (300, 300); body center around (290, 250)? Pelican's weight on the saddle: butt at (300,300). Body extends up and back: body center (285, 245), head at front-right (395, 205), beak to (445, 230). Legs from body bottom (~310, 290) down to pedals. Pedal positions around BB (380,380) radius 95: top pedal (380, 285), bottom (380, 475), front (475,380), rear (285,380). Pelican's foot to pedal at (380,285) is short; at (285, 380) far behind. Hmm, legs would stretch a lot. It's a cartoon; exaggerate leg length with an ankle joint — draw leg as two segments with a knee that bends. Simpler: draw legs as slightly curved thick lines from hip to pedal, with knee midpoint offset. That's fine and forgiving visually.
+
+Alternatively, put the pelican's feet on pedals and have the crank rotate slowly; the legs flex. Good.
+
+Also add a "pelican wing" on handlebar for grip? Cute: one wing reaches to the handlebar grip. That could look odd. Maybe just a wing folded along the body, and a second wing slightly out. Keep it: folded wing with feather lines, plus tail feathers behind.
+
+Also add a helmet? Fun: pelican wearing a tiny bicycle helmet. Could be a toggle "helmet". Maybe too much. Keep controls: Speed slider, Ride/Stop toggle, Palette select (3 themes), Download SVG, Copy SVG, and maybe "Wheel spokes" toggle. Also a subtle ground shadow and background gradient, clouds? Keep tasteful.
+
+Let's also add a "wobble" — bike tilts slightly? No, keep steady; maybe slight bob with speed. Add subtle bobbing when riding (translate y by 2*sin). Nice touch but must not break. Keep it simple: when riding, the whole cyclist group bobs slightly.
+
+Edge cases: speed 0 → no animation but still "riding" state; repeated clicks on download → fine; resize → SVG scales with viewBox and CSS max-width 100%.
+
+Implementation details:
+- Build SVG via a function that returns SVG string, but to animate I need element refs. Approach: create the SVG markup string with ids, inject via innerHTML into a container, then query elements by id and animate via rAF setting transform attributes. Since we regenerate on palette change, we must re-query refs after each render. Write `render()` that builds markup, sets container.innerHTML, then caches refs and starts loop if not running.
+
+Animation loop: single rAF loop that accumulates angle based on speed and riding state; updates wheel rotations (rear & front, same angle, but front wheel rotates same), crank rotation, and leg positions (recompute leg path endpoints from crank angle), and pedal positions. Legs: I'll draw legs as paths whose endpoint is the pedal position; recompute `d` each frame — that's a DOM write per frame for 2 legs; fine (small).
+
+Actually simpler: put legs inside a group rotated with crank? Legs attach at hip (fixed on pelican) and foot at pedal — the foot position is the rotated pedal. If I put the whole leg group rotation at BB, the hip would move too. So recompute path d each frame: `M hipX hipY Q kneeX kneeY footX footY` with knee computed as midpoint + perpendicular offset for knee bend. Fine.
+
+Also the pelican body could lean; keep static.
+
+Colors: theme palettes:
+1. "Sunset": pelican white/cream body, coral beak, teal bike? Let's define palettes as objects: {name, sky1, sky2, ground, grass, pelican, pelicanShade, beak, beakDark, eye, bike, bikeDark, accent, wheel, spoke, strap?}. Use CSS variables? Since SVG is generated, just fill strings.
+
+Palettes:
+- "Daylight": sky #dff1ff→#f7fbff, ground #cfe8c9, pelican #ffffff, shade #e6eef2, beak #f4a261, beakDark #e08b45, bike #2f6f8f? Let's do bike frame #e63946? Classic: bike #f2f2f2 with dark outlines? Use stroke #2b2b2b for lines? A cartoon look: bold dark outlines (#2b2b33) with flat fills. Yes — outline stroke width 6, round caps, so the whole thing is cohesive cartoon. That makes it look finished.
+
+Palettes:
+- daylight: sky #e8f4ff / #f8fbff, ground #d7ead2, grass #b7dcb0, body #ffffff, bodyShade #e3edf2, beak #f2a65a, beakDark #d98a3d, eye #2b2b33, bike #4a90d9, bikeDark #2f6ea8, accent (basket/helmet) #ffb703, groundLine #b9d6b0.
+- sunset: sky #ffe3c2 → #ffc9a3, ground #e6c9a8? pelican body #fff6ec, beak #e76f51, bike #7b2cbf? Hmm purple bike. Let's do bike #5a4a7a... maybe simpler: sunset bike #d1495b, accent #ffb703.
+- mint/retro: sky #d9f7ef, ground #a8e6c0, pelican #ffffff, beak #ff8a5b, bike #1f7a6c, accent #ffd166.
+- mono/blueprint? Skip, 3 palettes fine.
+
+Also a "hue" slider could be neat but palettes are cleaner and less risk.
+
+Download SVG: serialize the SVG element with XMLSerializer, add xmlns, create Blob, download link with filename `pelican-bicycle.svg`. Note: transforms set via attribute are fine. Also inline <style>? Avoid CSS in SVG; use presentation attributes only so it's self-contained. Yes — all styling via attributes (fill/stroke). Font? No text in SVG. Good.
+
+Copy SVG: navigator.clipboard.writeText may fail (no permission / non-secure context). Fallback: use a temporary textarea + document.execCommand('copy')? That's deprecated but works as fallback. Or show a message "Copy failed — use Download". Handle with try/catch and status message. Also if clipboard undefined, fallback to textarea select+execCommand, and if that fails, show error status.
+
+Status/toast: a small line under controls showing messages ("SVG downloaded", "Copied 24 KB", "Animation paused"). Use a status element with aria-live.
+
+Also "riding" toggle button: text changes to "Pause" / "Ride". Speed slider 0–3 rad/s? Let's say slider 0..100 mapping to rpm 0..60? Pedaling cadence ~ 60-90 rpm is fast; visually at 60rpm = 1 rev/sec, wheels also 1 rev/sec which is fast but fine and looks lively. Let's map slider 0–100 → wheel revolutions per second 0–2 (0..120 rpm), default 60 → ~1 rev/s? Might be dizzying. Default 35 → 0.7 rev/s. Let's do speed slider value 0..100 labeled "Pedal speed", angular velocity = value/100 * 2.2 rad/s? Hmm: 2.2 rad/s ≈ 0.35 rev/s ≈ 21 rpm. At 100 → 2.2 rad/s. Let's just use rad/s directly: omega = (value/100) * 3.0 rad/s, default value 45 → 1.35 rad/s ≈ 0.21 rev/s ≈ 12.8 rpm — slow and pleasant. Maybe default 60 → 1.8 rad/s ≈ 17 rpm. Fine, feels smooth. Actually for a "riding" feel, ~0.5 rev/s looks good: 3.14 rad/s at max. Let's set max 4.0 rad/s, default 2.0.
+
+Also idle detail: when paused (riding=false), wheels stop; when speed=0, also stopped but button still "Ride". Fine.
+
+Additional flourish: a few drifting clouds in the background that move with rAF? Could be nice but adds complexity; skip or add simple static clouds. Add static clouds for charm.
+
+Also ground: a line with a subtle shadow ellipse under the bike.
+
+Let me now carefully write the SVG geometry.
+
+viewBox: 0 0 900 620.
+
+Ground line y = 520. Wheels radius 74, centers y = 446. Rear hub (288, 446), front hub (612, 446). Wheel bottom = 520. 
+
+BB: (420, 396)? Distance from wheel center 446 → 50 above. Crank radius 96 → bottom pedal at 492, above ground 520. But pedal at bottom y=492 vs wheel bottom 520: ok. But pedal at rear/front positions x=420±96 = 324..516, fine within frame.
+
+Hmm but BB at x=420 with rear hub 288 and front hub 612 — chainstays from 288→420 and 420→? The chain goes from chainring (r=46 at BB) to rear cog (r=20 at rear hub). Draw chain as two lines: top line from chainring top tangent to cog top, bottom similarly — approximate with lines from (420, 396-46) to (288, 446-20) and (420,396+46) to (288,446+20). Good enough and looks like a chain.
+
+Seat: seat top at (300, 300)? Seat tube from BB (420,396) to seat top (300,300) — that's up and back, length ~ 150. Seat post + saddle drawn as a small shape at (300,300): saddle is a rounded shape ~ 70 wide, 12 tall, tilted. Actually the pelican sits on the saddle; the saddle should be under the pelican's butt. Pelican body center maybe (300, 250)? Then butt at ~ (300, 290) near saddle top (300, 300). Hmm, but the pelican also needs to be forward enough that its legs reach the pedals at BB (420,396) with crank radius 96 → pedals range x 324..516, y 300..492. Pelican hip at (300,290)? Leg to pedal at (420+96cos, 396-96sin): at θ=200° → pedal (378, 431) distance ~145. Legs 145 long vs body 120 tall — long legs, but it's a cartoon pelican; fine, birds have long legs! Good, actually justifies it.
+
+But wait: pelican sitting on saddle at (300,300), with body center (300, 250) and head far forward-right. The saddle is at x=300 which is between rear wheel (288) and BB (420). Realistic enough: saddle is above rear-ish. Fine.
+
+Seat tube: from BB (420,396) to seat cluster (300, 310) then seat post up to (300, 300)? Simplify: seat tube line from (420,396) to (302, 306); saddle drawn as path around (300,300): a shape like `M 268 302 Q 300 286 332 302 Q 340 312 330 320 Q 300 330 272 320 Q 260 312 268 302 Z` — a saddle-ish blob. Simpler: rounded rect rotated slightly: `<rect x="258" y="296" width="84" height="14" rx="7" transform="rotate(-4 300 303)"/>`. Good, clean cartoon.
+
+Top tube: from seat top (302,306) to head tube top. Head tube: front hub (612,446), fork goes up-back to head tube bottom (570, 356)? Let's define head tube top (566, 300), bottom (572, 366). Fork from (572,366) to front hub (612,446) — fork blade lines. Top tube from (302,306) to (566,300) — nearly horizontal, good for cruiser style. Down tube from BB (420,396) to (572,366)? That's short and weird. For a single-tube-ish cruiser, maybe skip down tube or make it a "step-through" style: from BB up... Let's do a proper diamond-ish but with a sloping top tube (since seat tube leans back heavily).
+
+Reality check: seat tube from (420,396) to (302,306) leans back a lot (Δx=-118, Δy=-90). Head tube at 566-572. Top tube from (302,306) to (566,300) long and flat. Down tube from BB (420,396) to head tube bottom (572,366): Δx=152, Δy=-30 — a shallow down tube. That's a weird "soft-tail"? It'll read as a beach cruiser / city bike. Acceptable for cartoon. Alternatively move BB forward: BB (450, 380), seat top (310, 300) → seat tube Δx=-140, Δy=-80. Hmm.
+
+Alternative cleaner approach: make seat tube steeper and shorter: seat top (340, 300), BB (430, 392). Then top tube from (340,300) to (560,300). Down tube from (430,392) to (570,356) → Δx=140, Δy=-36. Still shallow but that's a "flexible" look... 
+
+Honestly, a classic diamond with slanted angles will look fine at cartoon scale with 7px strokes. Let me just pick a coherent set:
+
+- Rear hub RH = (288, 446), front hub FH = (612, 446), wheel r = 74.
+- BB = (438, 386).
+- Seat top ST = (330, 300).
+- Head tube top HT = (556, 296), head tube bottom HB = (564, 362).
+- Chainstay: RH→BB. Seat stay: RH→ST. Seat tube: BB→ST.
+- Down tube: BB→HB. Top tube: ST→HT.
+- Fork: HB→FH (two lines slightly apart? one line fine, plus a fork blade shape: line from (564,362) to (612,446)).
+- Stem: HT (556,296) → (544, 250)? Handlebar: from (544,250) curve. Draw stem line from (556,296) to (548,252); bar as a path `M 528 250 Q 548 240 566 250` with round caps, stroke 8, and small grips. Or a straight bar: `M 530 252 L 570 252` rounded. Let's do a slight sweep: `M 528 252 Q 548 242 568 252`.
+
+Hmm wait, head tube top at (556,296) and bar at y=252: stem 14px tall — a bit short but ok with stroke widths. Make HT (556,300), stem to (546, 254), bar curve around y=252.
+
+- Pedals: crank radius 96 from BB (438,386): pedals at (438+96cosθ, 386-96 sinθ). At θ=30° → (521, 339). Bottom pedal (438, 482) — ground is 520, ok. Rear pedal at (342, 386) — near rear wheel top area, fine.
+
+- Chainring circle at BB r=46, cog at RH r=19.
+
+Wheels: `<circle cx=288 cy=446 r=74 fill=tire stroke=rim stroke-width=2/>` plus inner rim circle r=64 in wheel color, plus spokes: 12 lines from hub to rim, rotating. Spokes: lines from center to points on the r=64 circle; rotate group around hub by angle. Use a `<g>` with lines drawn pointing right, then transform rotate(angle, cx, cy).
+
+Actually simpler: generate spokes as a path with 12 spokes, each `M cx cy L x1 y1`. Then rotate group.
+
+Pelican anatomy (coordinates absolute, drawn in a group translated 0,0 — I'll just use absolute coords so it is positioned on the bike):
+
+Sitting pelican facing right:
+- Tail feathers: behind body, pointing back-left-down: path from (250, 240) to (200, 260) to (235, 285) — a small fan. Pelican tail is short; include a modest one.
+- Body: an egg shape leaning: use path with cubic curves. Body center ~ (300, 250), height ~ 110, width ~ 90. Bottom of body at ~ (310, 296) sitting on saddle at y≈300.
+
+Let me define body path:
+```
+M 258 232
+C 236 232 224 252 226 276
+C 228 296 240 306 258 302
+C 270 340 292 296 300 250   ... 
+```
+Hmm, getting messy. Better: use an ellipse rotated, plus a breast shape. Cartoon pelicans: rounded body, big throat pouch, long beak, short tail. Let's compose:
+
+- Body: `<ellipse cx="300" cy="252" rx="62" ry="48" transform="rotate(-6 300 252)"/>` fill body color, stroke outline.
+- Rear/under belly shading: optional ellipse darker near bottom.
+- Tail: `<path d="M 252 236 L 214 250 L 226 276 L 256 278 Z"/>` a small pointed tail at the left.
+- Neck: thick curve from body front-top to head: `<path d="M 344 232 C 372 214 392 208 406 204" stroke-width="34" stroke=body fill=none stroke-linecap=round/>` — a thick neck. With outline, a stroked line with round cap plus fill? Strokes with round caps look like tubes; to get a clean outline I'd need stroke on both sides. Alternative: draw neck as a filled path (outline included). Simpler: draw the neck as part of the body silhouette path.
+
+Let me instead build the whole pelican silhouette as ONE filled path with even-odd-ish outline, then add details (wing, eye, beak, pouch as separate outlined shapes).
+
+Pelican silhouette (facing right, sitting):
+Key points: back of body at (246, 250); top of back curve to neck base (330, 236); neck up-right to head back (392, 200); head top (400, 186)... head circle center (406, 196) r 26 → head spans x 380..432, y 170..222. Beak from head front (432, 200) forward to (478, 214) with lower pouch.
+
+Silhouette outline path (clockwise from tail bottom):
+1. Start tail tip bottom (222, 272)
+2. Tail top tip (206, 252)  — hmm tail points back-down-left. Let's say tail: from body back at (250, 240) to tip (208, 258) then back to (236, 282) at body bottom-back.
+3. Curve along back: from (236,282) up: C (232, 250) (240, 226) → to (258, 214)? 
+
+I think using an ellipse body + separate neck shape + head circle is easier and looks fine (cartoon style, shapes overlap with same fill + outline stroke; overlapping strokes will show internal lines though!). Problem: overlapping shapes with strokes show seams. Solution: draw all silhouette parts with fill only first (no stroke), grouped; then... no, you can't easily outline a union in SVG without filter/clip.
+
+Options:
+a) Accept seams — actually in flat cartoon style, internal seams can look like feather/body separation lines. Many illustrations do this intentionally. With same fill color and same stroke, an internal line across the body looks like a seam. Risky.
+b) Use a single silhouette path for body+neck+head, then separate shapes for beak, wing, eye, legs, tail. Wing drawn on top with its own outline (a wing line on the body is natural), beak overlapping head (beak base under head? draw beak first then head over it? Then the head outline crosses the beak base — natural since beak attaches at head front; a seam there is fine/expected... still a line across the head-front junction; typically illustrators draw the beak attached with a line at the junction, which looks fine).
+c) Use `<g>` with a single path for everything bird-like. Let's do (c) but keep it manageable.
+
+Bird silhouette path attempt (facing right, sitting on saddle, body blob + neck + head):
+
+Head center H = (408, 196), r = 27.
+Beak: upper mandible from head front going right-down slightly to tip (486, 216); lower mandible shorter with big pouch hanging down to (470, 250) and back. The pouch is part of the beak silhouette (lower edge of head region). Pouch: from (430, 222) down to (452, 262) curve to (478, 236) then to tip (486, 218)? Hmm the pouch hangs below the lower mandible: lower mandible line from head to tip at y≈232, pouch bulges below to y≈258 near x 448.
+
+Silhouette outline (single closed path), going clockwise starting at tail tip:
+- Tail tip: (210, 262)
+- Up-back to body: (238, 244) → curve to back top (252, 222) → (274, 214) → neck base (322, 222)? 
+
+Hmm, the body top at y≈214 and back at x≈250; body ellipse center (300,252) rx 62 ry 48 rotated -6° gives top at ~252-48*cos6 ≈ 204 near x 300, left edge 238, right edge 362, bottom 300.
+
+Neck: from body top-front (344, 232) rising to head bottom-back (392, 222)? That's a neck going up-right ~ 50px over 48. Head circle center (408,196) r27 → bottom of head at 223, back at 381. So neck from (348, 236) to head back-bottom (384, 218) — short thick neck, radius ~30. Since head r=27, neck thick 34 looks like a pelican neck (thick). Good, pelican necks are thick-ish with a bend.
+
+Silhouette: I'll draw body+neck+head as one path:
+```
+M 214 264                       // tail tip lower
+C 232 272, 244 284, 262 292     // hmm tail is tiny; simplify: skip tail in silhouette, add tail as separate shape behind body drawn BEFORE body, so its seam is hidden behind body? No—tail drawn first, body over it, body's outline crosses tail base. Tail base seam visible as a line where body outline meets tail. If tail is drawn behind, the body's outline stroke covers the tail's base → looks attached. Yes! Draw tail first (behind), then body over it: the body's stroke will cut across the tail base, which reads as the tail sticking out from behind the body. That works nicely.
+```
+So: tail path drawn first: `M 252 232 C 236 236, 224 246, 212 262 L 228 280 C 236 268, 242 256, 254 252 Z` roughly a pointed tail fan behind body. Fine, it's behind so details don't matter much.
+
+Then body+neck+head silhouette path (single path):
+```
+M 240 268                          // back-bottom of body
+C 228 250, 226 226, 240 212        // back of body up
+C 256 200, 272 196, 288 206        // top of back
+C 312 196, 328 204, 344 218        // up to neck base front
+C 362 206, 374 200, 384 192        // neck to head back
+C 392 186, 418 186, 428 196        // head top
+C 436 204, 436 214, 430 222        // head front-top
+L 486 214                          // upper mandible to tip  -- beak
+L 470 246                          // lower mandible back / pouch bottom
+C 460 258, 448 246, 440 232        // pouch front curve up to head
+C 424 226, 386 236, 358 252        // chest/breast down to belly
+C 338 262, 300 274, 276 276        // belly bottom
+C 256 278, 244 274, 240 268        // back to start
+Z
+```
+This is hand-wavy but plausible; I'll trust smooth curves. Risk: it might look lumpy. Let me sanity check the flow: start back-bottom (240,268) → up-left curve to back (240,212) → over top of back to (288,206) → neck base (344,218) → neck up to head back (384,192) → head top curve to (428,196) → head front (430,222) → beak upper edge to tip (486,214) → pouch bottom (470,246) → pouch curve up to (440,232) → then from (440,232)?? that's the head-front-below area; then breast curve down-left to belly (276,276) → back to start. Wait, from pouch at (440,232) to breast (358,252) to belly (276,276): the breast line passes near the head bottom; ok.
+
+Hmm, the segment from (470,246) to (440,232) then curving to (358,252): the underside of head/throat. Fine.
+
+Beak tip at (486,214) and head front (430,222): the upper mandible goes from head front down-right to tip? Tip y=214 is above head front y=222 — beak slightly upward. Pelican beaks point roughly horizontal/slightly down when riding facing right... Actually for a riding pelican, beak horizontal-ish. Let's set upper mandible from (432, 216) to tip (488, 210) — slight upward. And pouch below from tip back to (470,248) then up to (444,226).
+
+I'll write it as: after head front (430,224): `L 488 212` (upper mandible top edge to tip), `L 474 244` (tip down to lower mandible/pouch bottom), `C 458 258, 442 244, 434 230` (pouch bulge back to head), then `C 414 240, 380 246, 352 262` (throat/chest to belly). Hmm the pouch curve to (434,230) then chest curve to (352,262): passes through head-bottom region — fine.
+
+Eye: circle at (400, 188) r 4.5 dark, plus tiny white highlight r 1.6 at (401.5,186.5).
+
+Beak line detail: a line separating upper/lower mandible: from (406, 214)?? The head front-bottom is around (428, 226)... Add a subtle line from head at (400, 206) to (480, 216)? Might clutter. Skip or add small nostril dot: circle at (452, 208) r 1.8 in beakDark. Cute.
+
+Wing: folded wing on the body side: path from (356, 206) curving down-left: `M 352 208 C 324 214, 306 236, 306 258 C 306 278, 322 296, 344 302 C 322 272, 322 246, 352 210 Z`? That's a wing shape hugging the body lower-front. Plus 3-4 feather arc lines inside. Hmm, the wing should be on the visible side of the body (the side facing viewer). Body ellipse spans x 238..362, y 204..300. A wing covering the front-lower part: from (356, 210) sweeping down-left to (280, 300) and back up to (300, 220)? Let me define wing as: `M 350 214 C 330 226, 312 250, 306 276 C 296 296, 316 306, 338 300 C 330 268, 326 240, 344 216 Z` — a leaf shape tilted. Feather lines: 2-3 short arcs inside.
+
+Actually simpler and cute: wing as a rounded shape with a few feather strokes. Fine.
+
+Legs: pelican legs from the body's bottom-front going down to the pedals. Hip points: back leg hip (288, 288), front leg hip (322, 288)? Both hips near body bottom (body bottom ~ (300,296) area). Legs: thigh + shin with a knee, drawn as stroked paths with round caps, width 13, color same as body? Bird legs are often pale/gray-orange. Use beakDark-ish or a leg color from palette (add `leg` color). Draw with stroke and outline? Stroked lines have no outline; a stroked line in a darker color reads fine as a leg. Use stroke width 14 round caps, color = leg color (e.g., #f0a878 or gray #9aa5ad). Then feet: small lines/ellipses at pedal.
+
+Legs drawn AFTER body so they overlay the body's bottom edge — the hip seam will show where the leg stroke crosses the body outline. To avoid, draw legs BEFORE the body? Then the body covers the top of the legs — cleaner! But then the leg appears from behind the body, going down to the pedal. Yes: draw legs first (behind body), feet peeking below body bottom. But the legs must be drawn before the body group but after the bike? Order: background (sky, clouds, ground), bike (wheels, frame, chain, handlebar), then legs? Legs go from body to pedals which are part of crank (bike). If legs are drawn behind the body but in front of the bike, the foot covers the pedal — good. So order: sky/ground → bike rear (wheels, frame, chain, crank arms) → legs → pedals → pelican body/head/wing → done. Hmm, but crank arms rotate and pedals rotate with them; legs attach to pedals, so drawing pedals after legs is right (foot on top of pedal).
+
+Wait, but the legs are animated (recompute d each frame) — fine, they're in a group `#legs` that I can update.
+
+Also the pelican's butt on the saddle: body bottom at y≈296-300, saddle at y≈300-314 (rect y 296 h 14 rotated). Body bottom overlapping saddle top: body drawn after saddle? Saddle is part of bike (drawn with bike). If body drawn after bike, the body covers the saddle partially — looks like sitting on it. Good: order = bike group (incl. saddle), then legs, then pedals?? Pedals are attached to crank which is part of... Let me restructure: 
+
+Order:
+1. sky, clouds, sun, ground, shadow
+2. bike body: wheels (with rotating spokes groups inside), frame, chain, seat+saddle, handlebar
+3. legs (behind pelican body, over bike) — but legs should be over pedals? Feet over pedals looks right; legs over crank arms too (legs in front of crank arm is normal-ish since the crank is on the outside... whatever, cartoon).
+   So: 3. legs, 4. pelican, 5. pedals + crank arms on top of legs? Then the crank arm would be drawn over the leg — hmm, the foot should be over the pedal. Draw crank arms with pedals after legs: pedal disc over foot? The foot sits on top of the pedal, so foot over pedal. But leg drawn in step 3 is over the crank arm (fine), and pedal drawn in step 5 over the foot (covers foot bottom slightly, looks like foot on pedal). Eh — foot over pedal is more correct: step 3 legs with feet, step 5 crank arms only (no pedal discs), and pedal discs drawn as part of legs (small ellipse at the foot position). Simplest: legs group includes foot ellipse; crank arms drawn before legs. So:
+
+Order: sky/ground → rear wheel, front wheel, frame, chain, seat, handlebar, crank arms + chainring → legs group (path + foot ellipse, animated) → pelican (tail, body, wing, eye, beak details) → ... and pedals: draw small pedal rectangles as part of crank group (before legs) so feet cover them. Good.
+
+Wheel rotation: spokes rotate; tire/rim static (circle). Spokes group per wheel: `<g id="spokesRear" transform="rotate(0 288 446)">`. Update transform each frame: `rotate(${angleDeg} 288 446)`.
+
+Also add a subtle motion: when riding, whole cyclist group translateY bob = 1.5*sin(angle*2)? That would move everything including wheels off ground slightly — no, bobbing the whole bike including wheels looks wrong (wheels would leave ground, though a tiny 1px bob is imperceptible and fine). Skip bobbing; instead add a slight pelican head bob? Skip. Keep clean: wheels spin, cranks spin, legs flex.
+
+Clouds: 2-3 static cloud shapes with soft white fill, maybe slowly drifting? Static is fine; or drift with rAF using the same loop (translate x, wrap around). Nice touch, cheap: clouds drift at 0.6 px/frame*slow factor. Let's include: clouds group with 3 clouds at various x, moving left slowly, wrapping when off-screen (x < -120 → x = 960). Speed tied to ride state? Let's have them drift always but faster when riding — ties nicely. Keep it simple: drift speed = 6 + 14*speedFactor px/s.
+
+Also a sun in the corner with a soft glow (radial gradient). Gradients need defs — fine, ids unique.
+
+Now the UI layout: header with title + subtitle, main area with the SVG card (white/rounded, subtle shadow), controls panel below/side. Responsive: flex column on narrow, row on wide. Controls:
+- Ride/Pause button (primary)
+- Speed range 0-100 with value readout
+- Palette: 3 swatch buttons or a select. Use a segmented control of 3 buttons with color chips.
+- Download SVG button, Copy SVG button.
+- Status line (aria-live polite).
+
+Also maybe a "Reset" not needed.
+
+Keyboard: space toggles ride? Might conflict with buttons; add key handler for "r" maybe not necessary. Skip, but ensure buttons are real <button>s.
+
+Edge cases:
+- Speed 0 with riding on: loop runs but angle doesn't change; fine (still rAF; could skip but harmless). Actually to be efficient, if omega==0 and clouds still drift... clouds drift independently, so loop must run anyway if clouds animate always. Hmm, if paused and speed 0, we could idle the loop. Example: keep loop running always but it's cheap; still, "clean code, no dead code". I'll run the loop only when needed: needsAnimation = riding && omega>0 || cloudsDrift. Clouds drift always (subtle) → loop always runs. That's fine and simple; but a constantly running rAF is fine for a page like this. Alternatively make clouds static to reduce complexity. I'll keep clouds drifting — it's a nice living-background touch and simple. But respect prefers-reduced-motion: if reduced motion, don't animate clouds and pause riding? Nice touch: check matchMedia('(prefers-reduced-motion: reduce)') → if true, start with riding=false and clouds static, and note in status. Good edge-case handling. Hmm, adds code but shows care. I'll include it briefly.
+
+- Resize: SVG scales via CSS (width:100%, height:auto, viewBox preserveAspectRatio default). Nothing to recompute. Fine.
+- Repeated clicks on download: each creates a new blob URL and revokes it after click; guard with try/catch. Also revoke after a timeout in case click doesn't navigate? Standard: create URL, anchor click, revoke in setTimeout 5000. Repeated clicks create new URLs; fine.
+- Copy: clipboard API may be unavailable → fallback textarea+execCommand → if both fail, status "Copy not available — use Download".
+- Invalid input: range input always valid; clamp value with Number.isFinite check anyway. Palette clicks idempotent.
+
+Also "no network" — all inline, no fonts (use system font stack).
+
+Let me now write the code.
+
+Structure:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelican on a Bicycle — SVG Generator</title>
+<style>...</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>Pelican on a Bicycle</h1>
+  <p class="sub">A hand-built SVG scene — tune the pedal speed, switch palettes, and export the artwork.</p>
+</header>
+<main class="layout">
+  <section class="stage" aria-label="Illustration">
+     <div id="stage" class="stage-inner"></div>  <!-- svg injected -->
+  </section>
+  <aside class="panel">
+     controls...
+     <p id="status" class="status" role="status" aria-live="polite"></p>
+  </aside>
+</main>
+<script>...</script>
+</body>
+</html>
+```
+
+CSS theme: dark slate background with soft gradient, card surfaces, accent color. Let's do a warm-dark UI: bg #10151c → #172029 gradient, panels #1b2430 with border #2b3644, text #e8eef5, muted #93a3b5, accent #ffb703 (matches pelican vibe) or teal #4cc9a0. Use accent #f4a261? Let's use #ffb703 for primary button and #7bdff2? Keep one accent: #ffb703 with hover. Buttons with focus-visible outline.
+
+Stage: card with rounded 18px, background linear-gradient sky-ish? The SVG has its own sky, so the card just centers it with padding and shadow.
+
+Now the JS.
+
+Constants:
+```js
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const VIEW = { w: 900, h: 620 };
+const GROUND_Y = 520;
+const WHEEL = { r: 74, rear: {x:288,y:446}, front: {x:612,y:446} };
+const BB = { x: 438, y: 386 };
+const CRANK_R = 96;
+const CHAINRING_R = 46;
+const COG_R = 19;
+const SPOKE_COUNT = 12;
+const MAX_OMEGA = 4; // rad/s at speed 100
+const DEFAULT_SPEED = 55;
+const CLOUD_DRIFT_BASE = 5, CLOUD_DRIFT_RIDE = 16;
+const PALETTES = [...];
+```
+
+Palettes object with keys: skyTop, skyBottom, cloud, ground, groundEdge, shadow, body, bodyShade, wingLine? (wing uses bodyShade), beak, beakDark, eye, leg, bike, bikeDark, accent, spoke, hub, chain.
+
+Let me define two-tone bike: frame fill bike, stroke bikeDark? Outline strokes: I'll use a global outline color `ink` = #2b2b33 for all strokes (consistent cartoon). Actually a dark ink outline everywhere gives a cohesive cartoon look: ink: '#2a2f3a' for all strokes with stroke-width 6 (linejoin round, linecap round). Then palettes only need fills. Simpler and cohesive. Yes: `ink` fixed, palette = fills only. But a "sunset" palette with a dark ink outline still looks fine.
+
+Palette fields: skyTop, skyBottom, cloud, ground, groundDark, shadow, body, bodyShade, wing, beak, beakDark, leg, bike, bikeAccent (saddle/grips), spoke, hub, chain, sun.
+
+Let me pick 3 palettes:
+
+1. Daylight:
+skyTop #cfe9ff, skyBottom #f4faff, cloud #ffffff, ground #cfe6c2, groundDark #b3d4a4, shadow #9dc78f, body #ffffff, bodyShade #e4eef4, wing #dfe9f0, beak #f7a072, beakDark #dd8b55, leg #f0a878, bike #3d8fd1, bikeAccent #ffd166, spoke #8fb8d4, hub #2b3a4a, chain #6b7c8c, sun #ffe9a8
+
+2. Sunset:
+skyTop #ffd6a5, skyBottom #ffc9a3? maybe skyTop #f7b267 skyBottom #ffd9a0... Let's: skyTop #ffb56b? too strong. Use skyTop '#ffcf9e', skyBottom '#ffe9c7', cloud '#fff4e2' (warm white), ground '#e0b8a0'? Hmm ground in sunset: '#c98f6d'? Let's do ground '#e3b183', groundDark '#c9926a', shadow '#b97f57', body '#fff6ec', bodyShade '#e9d6c6', wing '#f0dccb', beak '#e2603f', beakDark '#b8431f', leg '#e08a5f', bike '#5b3a8e'? purple bike in sunset — ok, or '#c94f6d'. Use bike '#c94f6d', bikeAccent '#ffd166', spoke '#e0a8bd', hub '#2b3a4a', chain '#8a6f88', sun '#fff0b3'.
+
+3. Mint (retro):
+skyTop '#bfe9e0'? Let's: skyTop '#a8e6cf', skyBottom '#e6f7f1', cloud '#ffffff', ground '#8ecf9f'... ground darker than sky-bottom? ground '#7fc79b', groundDark '#5f9f79', shadow '#4e8a67', body '#ffffff', bodyShade '#dff0e6', wing '#cfe8dd', beak '#ff8a5b', beakDark '#d9603a', leg '#f2a07a', bike '#1f7a6c', bikeAccent '#ffd166', spoke '#9fd8c8', hub '#14332e', chain '#4e8b80', sun '#fff3b0'.
+
+Good.
+
+Now generating SVG string:
+
+```js
+function buildSVG(palette) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="900" height="620" role="img" aria-labelledby="sceneTitle sceneDesc">
+  <title id="sceneTitle">A pelican riding a bicycle</title>
+  <desc id="sceneDesc">Cartoon pelican with a long beak pedalling a city bicycle.</desc>
+  <defs>...gradients...</defs>
+  ...
+</svg>`;
+}
+```
+Note: ids inside SVG (sceneTitle) plus gradient ids — when only one SVG on the page, fine. But if we re-render on palette change, ids are recreated — fine.
+
+Sky gradient: linearGradient id="skyGrad" x1=0 y1=0 x2=0 y2=1 (objectBoundingBox default) — for a rect covering the viewBox it's fine.
+
+Shadow under bike: ellipse cx=450 cy=522 rx=190 ry=12 fill=shadow opacity .55. Hmm, shadow should be under the whole bike: from ~220 to ~700 → cx 460, rx 240, ry 12, cy 522, with blur? Use feGaussianBlur? Simpler: ellipse with low opacity and radial gradient. Just ellipse opacity 0.45 fine.
+
+Sun: circle at (770, 90) r 46 with fill sun, plus a ring? Keep plain circle, maybe opacity .9. Clouds overlapping sun fine.
+
+Clouds: function cloudPath(x,y,s) → a group of circles? Use path: `M x,y ... ` Simpler: `<g class="cloud"><ellipse .../><ellipse .../><ellipse .../></g>` filled with cloud color, opacity .95. Three clouds at (150,110,1), (330,70,.75), (600,150,.9) — scaled via transform translate + scale. I'll build cloud as `<g transform="translate(x,y) scale(s)"><path d="M -46 0 a 23 23 0 0 1 ... " /></g>`. Easiest: three overlapping circles path-free: `<circle cx="-40" cy="0" r="26"/><circle cx="0" cy="-12" r="32"/><circle cx="42" cy="2" r="24"/>` in a group translated — but overlapping circles with the same fill and no stroke look like a cloud. Good, no outline (clouds are soft). With opacity 0.95.
+
+Since clouds drift, I keep refs and update transform each frame: `clouds[i].setAttribute('transform', translate(...))`.
+
+Drift wrap: x decreases; if x < -140 → x = 940 + random? Deterministic: reset to 940. Keep per-cloud speed factor.
+
+Now bikes details:
+
+Wheels: 
+```
+<g class="wheel">
+  <circle cx cy r=74 fill=tire? 
+```
+Tire: stroke ink 6? Let's do: outer circle r=74 fill=bike? No: tire dark: fill '#2b2f3a'? Using ink for everything: tire = circle r=74 fill=none stroke=ink stroke-width=8 → ring; then inner rim circle r=64 fill=bike? Hmm. Simpler cartoon wheel: 
+- circle r=74 fill=none stroke=ink stroke-width=9 (tire, thick dark ring)
+- circle r=64 fill=none stroke=ink stroke-width=3 (rim highlight)? 
+- spokes drawn in spoke color, 12 lines from hub to r=62, stroke-width 3, color spoke.
+- hub circle r=8 fill=hub stroke=ink stroke-width=3.
+- Also a light inner disc? Keep airy: no disc, so legs/frame show through. Good.
+
+Wait, spokes at color spoke (#8fb8d4) over sky — visible. Over ground region? The wheel bottom touches ground; spokes fine.
+
+Spokes path: for i in 0..11: angle = i*30°, line from (cx + 8cos, cy + 8sin) to (cx + 62cos, cy + 62sin). Generate in JS within the SVG builder — but buildSVG is a string template; I'll compute spokes string with a helper `spokesMarkup(cx, cy, rInner, rOuter, count)`.
+
+Frame: 
+- chainstay: line RH→BB, stroke ink 7, fill none... For a filled-frame look, use stroke-width 7 with stroke=ink? Then frame is outlined only as a thin dark line — that reads as a line-art bike, consistent with line-ish cartoon. Alternatively thick strokes in bike color with an underlying thicker ink stroke (outline effect): draw each tube twice: first stroke ink width 14, then bike color width 8. That gives a bold outlined tube look. That's a nice trick: `stroke-tube(x1,y1,x2,y2,color)` emits two lines. Let's implement helper `tube(a, b, color)` → `<line ... stroke=ink stroke-width=15 stroke-linecap=round/><line ... stroke=color stroke-width=8/>`. Tubes: chainstay, seat stay, seat tube, top tube, down tube, fork, seat post?, stem, handlebar (thicker), crank arms (thin), chain (thin lines, ink color? chain as two thin lines in chain color with ink width 2? Chain drawn as lines stroke=chainWidth 3 color #6b7c8c — no ink outline, fine).
+
+Hmm, careful: double-stroking overlapping tubes creates ink outlines crossing at joints — that's normal for cartoon bikes (joints look like lugs). OK.
+
+Saddle: rounded rect fill bikeAccent with ink stroke 5, rotated -4deg around its center.
+
+Handlebar: path `M 528 252 Q 544 240 566 250` with tube stroke width 9 (ink 13). Plus grips: two short thicker segments? Skip; add small brake levers? Skip.
+
+Stem: line from HT top (556,296) to (546,254)? Wait HT top at (556,296) — but top tube connects to HT top; the stem goes up from HT top. Line (556,296)→(548,254), tube width 8/13? Make stem thinner: ink 11, bike 7.
+
+Head tube: draw as a short thick line (556,296)→(564,362) with tube style — that's the head tube as a tube, and top tube/down tube meet its ends. Good.
+
+Fork: (564,362)→(FH 612,446): a tube. Plus maybe two blades; one is fine.
+
+Seat post: from ST (330,300) down along seat tube — seat tube already goes BB→ST, which is long; typical but fine.
+
+Chain: from chainring top (438, 386-46=340) to cog top (288, 446-19=427): line; and bottom: (438,432)→(288,465). Stroke chain color width 3.5, no ink. Hmm the chain should look like a chain — two parallel lines fine.
+
+Chainring: circle r=46 at BB, fill none stroke bike stroke-width 7? Plus inner circle r=30 stroke bike 4? Or teeth: skip teeth, add circle outline with a small inner circle (double ring: outer r=46 stroke ink 4? Let's do: circle r=46 fill none stroke=ink stroke-width=5? and circle r=40 stroke=bike stroke-width=3). Hmm the chainring should look like a disc: fill bike color circle r=46 with ink stroke 6, plus 5 small circles? Keep: `<circle r=46 fill=bike stroke=ink stroke-width=5/>` and `<circle r=34 fill=none stroke=ink stroke-width=3 opacity=.55/>` (suggesting cutouts). Fine.
+
+Cog at rear hub: circle r=19 fill=bike stroke=ink 3.5.
+
+Crank arms: two arms from BB: for the pedal at angle θ, arm from BB to pedal, stroke ink 14 then bike 9, round cap; and reverse for the other side (offset by 180°+? Real bikes: two crank arms opposite). Since the pelican's two legs are on left/right, use a slight visual offset: front leg pedal at θ, rear leg pedal at θ+180? Then legs would cross the body. Real: rider's two legs on opposite cranks, one nearer (drawn solid) and one farther (drawn slightly darker/thinner for depth). Nice: near crank arm in bike color, far crank arm in bikeShade (darker) drawn first. Legs: far leg darker (bodyShade-ish leg color darkened) and drawn behind, near leg normal. That's a lovely depth touch and easy: far leg color = mix(leg, ink, .25)? I need color math... simpler: palettes include `legFar` and `bikeShade`. Add fields: bikeShade (darker bike), legFar, spokeFar? Let's add `bikeShade` and `legShade` and `shade` for wing? Keep palette fields: bike, bikeShade, leg, legShade. Compute in palette definitions manually. Fine.
+
+So crank: far crank arm at θ+180 (drawn first, color bikeShade, width slightly less), near crank at θ? Wait if near pedal at θ, far pedal at θ+180. Legs: far leg (from hip to far pedal) drawn first in legShade, then near leg in leg. Both hips at the body bottom, slightly different: far hip (292, 288), near hip (316, 292)? Hmm hips: pelican's legs come from the body's lower front. Let's set near hip (320, 292), far hip (296, 290). Legs drawn before body so tops hidden.
+
+Leg path: from hip to pedal with a knee: 
+```
+function legPath(hip, foot) {
+  const mx = (hip.x + foot.x)/2, my = (hip.y+foot.y)/2;
+  // knee pushed forward/outward
+  const dx = foot.x - hip.x, dy = foot.y - hip.y;
+  const len = Math.hypot(dx,dy) || 1;
+  const nx = -dy/len, ny = dx/len; // perpendicular
+  const bend = 14;
+  const kx = mx + nx*bend, ky = my + ny*bend;
+  return `M ${hip.x} ${hip.y} Q ${kx} ${ky} ${foot.x} ${foot.y}`;
+}
+```
+Perpendicular direction sign: choose so knee bends forward (to the right/down). dx>0, dy>0 (foot below-right of hip): nx = -dy/len <0, ny = dx/len >0 → knee offset left-down. Hmm for a knee, we want the bend opposite the direction of travel... For a leg from hip down-right to foot, knee should bulge to the right (outward) — i.e., perpendicular rotated... Let's just use nx = dy/len, ny = -dx/len → right-up-ish. With dx>0, dy>0: nx>0 (right), ny<0 (up) → knee toward upper-right = bulging forward. Reasonable for a chicken/pelican leg bend. Fine — visually a gentle S/Q curve either way.
+
+Foot: ellipse at pedal, rx 9 ry 6 rotated? Just circle r=7 fill leg color with ink stroke 3? Feet as small ellipses: `<ellipse cx cy rx="10" ry="7" fill=leg stroke=ink stroke-width=3/>`. And the pedal itself drawn in crank group as a small rounded rect at pedal position rotated with crank: `<rect x=-11 y=-5 width=22 height=10 rx=5>` rotated by θ so it lies tangential... simpler: circle r=9 fill bikeAccent? Pedeals: rounded rect rotated to the crank angle: transform `rotate(θdeg, px, py)` on a rect centered at px,py. Good: `<g transform="rotate(a px py)"><rect x=px-10 y=py-5 width=20 height=10 rx=5 fill=bikeAccent stroke=ink stroke-width=3/></g>` — but rotating around its own center keeps it centered; fine (a pedal plate is roughly circular anyway).
+
+Wait, crank arm angle at pedal: pedal at (BB.x + R cosθ, BB.y - R sinθ). In SVG, rotate(a) rotates clockwise for positive a (y down). A point at angle θ measured as (cosθ, -sinθ) corresponds to SVG rotation of -θdeg... Let's define: pedal position P(θ) = (BB.x + R cosθ, BB.y - R sinθ). If I place a rect at the pedal and rotate by `-θ` degrees around the pedal, doesn't matter much visually for a near-circular pedal. For the crank arm, I draw a line from BB to pedal directly each frame — no rotation math needed since legs/arms are recomputed... but crank arms are part of the static-ish group; I'd need to update them each frame too, or put them in a group rotated around BB: `<g transform="rotate(deg, BB.x, BB.y)">` with the arm drawn pointing right at angle 0 (from BB to (BB.x+R, BB.y)) and pedal at (BB.x+R, BB.y). Then rotating by `-θdeg` puts the pedal at P(θ) since rotating (BB.x+R, BB.y) by -θ° in SVG (clockwise positive) gives (BB.x + R cos(-θ), BB.y + R sin(-θ)) = (BB.x + R cosθ, BB.y - R sinθ). ✓. So I need a group per crank, each containing the arm line + pedal rect, rotated by -θ and -(θ+180) i.e. θ+0 and θ+180 → rotate by -θ and -(θ+180) = -θ. Same group could contain both arms: one pointing right, one pointing left, and rotate the whole group by -θ. 
+
+So: `<g id="crank">` containing far arm (pointing left, bikeShade), far pedal, near arm (pointing right, bike), near pedal. Rotate whole group by -θ around BB. But then "far" arm at 180° rotation — when rotated, both rotate together correctly. ✓ And legs attach to pedal positions computed in JS: near pedal at P(θ), far pedal at P(θ+180).
+
+Wait: which arm is "near" changes as it rotates (in reality one leg is in front). Ignore; keep near = right-side arm (initially), far = left. Fine.
+
+Also chainring at BB drawn above crank? Crank arms attach to chainring; draw chainring first, then crank arms on top. Order in group: chainring, cog, chain, crank arms+pedals, then legs, then pelican. Hmm chain should be behind chainring? Chain wraps the ring; draw chain first then ring, or ring then chain — minor. Draw chain then ring then crank.
+
+Wheels drawn before frame.
+
+Pelican group:
+```
+<g id="pelican">
+  <path tail .../>
+  <path body+neck+head+beak .../>   <!-- main silhouette -->
+  <ellipse bodyShade low opacity for belly? maybe skip -->
+  <path wing .../>
+  <circle eye/><circle highlight/>
+  <circle nostril/>
+  <path beak line? skip/>
+</g>
+```
+Wait — beak is part of silhouette path (I included mandibles in the outline). But the pouch curve and back... Let me finalize the silhouette path with cleaner numbers. Let me re-derive with the head as a circle r=27 at (408,196) — I'll write the outline as: start at the back-bottom of the body, go counterclockwise? In SVG, path direction doesn't matter for fill. Let's go: back-bottom → up the back → over the shoulder → neck → head → beak → pouch → throat → breast → belly → back to start. (This traces the outline with the interior on the right-ish; fine either way.)
+
+Points:
+- A: back-bottom (244, 272)
+- back curve up to (240, 222): C (232, 244) (228, 232) (240, 222)? Let me use: `C 232 258, 226 238, 238 220` from (244,272) → control points (232,258),(226,238) → end (238,220). Hmm control points should be near the curve. From (244,272) to (238,220) with controls (234,258) and (226,232): gives a slightly convex-left back. OK: `C 234 256, 226 232, 238 218`.
+- over the back top: from (238,218) to (286,206): `C 254 200, 272 200, 286 206`. Body top ~y 200-206. Body ellipse center (300,252) ry 48 rot -6 → top ≈ 252 - 48*0.995 ≈ 204 at x≈300. Consistent ✓.
+- shoulder to neck base: (286,206) → (336,224): `C 310 208, 324 214, 336 224`. Hmm that's along the top-front of the body rising to the neck base. Neck base around (336,224) then neck goes up-right to head back (384,192)? That means the neck rises from (336,224) to (384,192): slope up-right, length ~57, thick ~34 → the neck's bottom-left edge... Since the outline is a single closed curve, the neck is a "hill" between the body top and the head. The neck's front edge goes from body shoulder (336,224) up to head front-bottom...? No — the outline goes: body top → neck back (up the back of the neck) → head top → head front → beak → pouch → throat → chest → belly → body bottom → back to start. The neck's front edge is part of the throat line (pouch→chest), which passes through the head's bottom-front. OK so the neck's visible thickness is determined by the head circle and the body shoulder: if the head (r27 at 408,196) and body shoulder (336,224) — the neck region between them is filled by the outline's back edge (body top → head back) and the front edge (head bottom → chest). Head bottom is at y≈223 at x 408. Chest line from (440,232) to (358,258): passes below head. So the neck appears as a thick diagonal band from (336,224) to (408,223) — thickness ~ (distance between the two edges) — the back edge goes (336,224)→(384,192)→head top (408,169)... and front edge head bottom (408,223) → chest. So at x=390, back edge y≈195, front edge y≈226 → thickness 31 ✓ good pelican neck.
+- head top: from (384,192) curve to head front top: head center (408,196) r27: back point (381,196), top (408,169), front (435,196), bottom (408,223). So: `C 390 180, 400 170, 412 172` ... let me write: from (384,192) `C 390 181, 404 170, 420 178` → then `C 432 186, 436 200, 432 210` (head front, curving down) → then beak upper `L 486 214` → tip → pouch: `L 470 250` → `C 452 258, 436 246, 428 234` → throat/chest `C 410 238, 386 244, 366 254` → belly `C 34 자료에 따르면...` 
+
+Belly from (366,254) to bottom (280,286): `C 348 268, 316 272, 292 284` then `C 272 292, 254 286, 244 272` → close (`Z` back to 244,272). 
+
+Hmm wait, the door: belly bottom around y 284-290 sits on the saddle at y≈300 (saddle rect y 296-310 rotated). Body bottom at 284 → slight gap over the saddle. Body ellipse bottom was ~300. Let me lower the belly: belly points y ~ 292. Adjust: chest (366,254) → `C 350 272, 320 284, 296 292` → `C 272 300, 254 292, 244 276`? Getting fiddly. It's a cartoon; ~±8px is invisible. I'll aim reasonable and trust smooth curves.
+
+Also the tail: separate shape behind: `M 250 240 C 236 244, 226 254, 214 268 L 232 286 C 240 272, 246 258, 256 250 Z` — a small pointed tail at the back-bottom-left, drawn before the body so it tucks behind. It will be partly covered by the body ellipsoid region... The body outline back edge is around x 238 at y 218-272, so the tail at x 214-256 sticks out to the left ✓.
+
+Wing: on the body's front-lower area: `M 352 210 C 326 220, 306 242, 298 268 C 290 288, 306 298, 326 296 C 326 272, 328 244, 348 218 Z` fill=wing stroke=ink 5. Plus feather arcs: `M 316 244 C 304 254, 300 268, 312 280` stroke ink 3 fill none, and similar. Hmm wing overlapping the body outline? Wing inside the body silhouette ✓ (from x 290-352 within body 238-362).
+
+Eye at (400,188) r=5 fill ink? Eye white? Cartoon: dark eye circle r=4.5 fill ink + white glint r=1.5 fill white at (401.5,186.5). Place on the head: head center (408,196) r27 → eye at (400,188) upper-left area ✓ (facing right, eye near front-top). 
+
+Nostril: small ellipse at (452, 212) rx 2 ry 1.4 fill ink opacity .6 — on the upper mandible (which runs from ~432,214 to 486,214). ✓
+
+Also add a subtle brow line? Skip.
+
+Beak lower mandible line: a stroke from (406,206) to (482,216)? It'd be inside the silhouette; a real illustration often has a mandible separation. The silhouette already has a pouch notch at (428,234)→(470,250)→tip. The separation line between upper and lower mandible: path `M 400 208 C 424 212, 452 216, 478 218` stroke ink 3 opacity .5? Might look odd crossing the head. Skip; nostril + pouch read fine.
+
+Legs: hips. Body bottom around (296..340, 284..292). Near hip (330, 288), far hip (300, 286). Legs drawn BEFORE the pelican group so the body covers their tops ✓.
+
+Now animation updates per frame:
+- angle += omega * dt (ω from slider, 0 when paused).
+- rearSpokes.setAttribute('transform', `rotate(${deg} ${RH.x} ${RH.y})`), same front.
+- crank.setAttribute('transform', `rotate(${-deg} ${BB.x} ${BB.y})`) where deg = θ in degrees.
+- legs: compute foot positions, set `d` on both leg paths; set foot ellipse cx/cy (in legs group, and I said feet are ellipses inside the legs group — update cx/cy).
+
+Also maybe rotate the pelican's head slightly? No.
+
+Clouds: each cloud drift x -= driftSpeed*dt; wrap x < -160 → x = VIEW.w + 140 + i*90? Deterministic wrap: x = 940 + i*120. Fine (they'd pop in at x 940..1060, off-view since viewBox width 900 ✓).
+
+Loop with rAF: track lastTs; dt = Math.min((ts-last)/1000, 0.05) clamp (tab-switch edge case ✓).
+
+Reduced motion: if prefers-reduced-motion, start paused with omega 0 and clouds static (skip cloud updates). Status message? Maybe not necessary; but "visible feedback on state changes" — the Ride button label shows state. I'll silently start paused and set status "Reduced-motion mode: animation off." Good.
+
+Rendering pipeline:
+```js
+let state = { paletteIndex: 0, speed: DEFAULT_SPEED, riding: true, angle: 0 };
+let refs = null; // { svg, spokes:{rear,front}, crank, legNear, legFar, footNear, footFar, clouds:[], pedalGroup? }
+```
+rAF loop always running? If nothing to animate (paused, speed 0, reduced motion) we could skip work but it's simpler to keep the loop running and early-out cheaply: 
+```js
+function frame(ts){ ... if (needsMotion(dt)) update(dt); requestAnimationFrame(frame);}
+```
+Clouds drift when not paused? Clouds drift always (unless reduced motion) → loop always does something. OK: keep loop always; if reduced-motion, freeze clouds too and then early return (still rAF, negligible cost). Fine — but "no dead code" — an early-out is fine, it's used.
+
+Actually, cleaner: `const animating = !reducedMotion || state.riding && state.speed>0`. Meh. Just do: clouds update if !reducedMotion; wheel/crank/legs update if (state.riding && omega>0). Loop always runs. Simple, no dead branches.
+
+Palette switching: re-render SVG with new palette, re-query refs, keep angle & state. Status: "Palette: Sunset".
+
+Download: serialize `refs.svg` via XMLSerializer → blob text/xml → URL.createObjectURL → anchor download `pelican-bicycle-<palette>.svg` → click → revoke after 10s? Use setTimeout 5000. Guard: if URL.createObjectURL missing (very old browsers) → status error. Wrap in try/catch.
+
+Note: the serialized SVG includes the current transform attributes (spokes rotated) — fine, or reset? Fine, it's a snapshot. Actually nicer: export with the current rotation baked in; okay.
+
+Copy: `navigator.clipboard?.writeText(text)` returns promise; catch → fallback `copyViaTextarea(text)` → try execCommand('copy') catch → status "Copy blocked — use Download". Note: the SVG text may contain characters fine.
+
+Also add `aria-label` on stage and a caption under the SVG? The SVG has title/desc. Add a small caption in the stage: "Pelican & bicycle — vector, scales to any size". Nice.
+
+UI markup:
+
+```html
+<aside class="panel">
+  <div class="control">
+    <button id="rideBtn" class="btn btn-primary" type="button" aria-pressed="true">Pause pedalling</button>
+  </div>
+  <div class="control">
+    <label for="speed">Pedal speed <output id="speedOut">55%</output></label>
+    <input id="speed" type="range" min="0" max="100" value="55" step="1">
+  </div>
+  <div class="control">
+    <span class="control-label">Palette</span>
+    <div class="swatches" role="group" aria-label="Palette">
+      <button class="swatch" data-palette="0" ...><span class="chip" style="--c1:..;--c2:.."></span>Daylight</button>
+      ...
+    </div>
+  </div>
+  <div class="control row">
+    <button id="downloadBtn" class="btn">Download SVG</button>
+    <button id="copyBtn" class="btn">Copy SVG</button>
+  </div>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+</aside>
+```
+Swatch chips: use inline style with palette colors — but palettes defined in JS; build swatch buttons in JS to avoid duplication. Yes: render palette buttons from PALETTES array with data-index, chip background linear-gradient(135deg, skyTop, beak). Good, no duplication.
+
+Speed output: `${value}`% — and omega = speed/100*MAX_OMEGA.
+
+Ride button label: when riding → "Pause pedalling", else "Start pedalling". aria-pressed? Use a toggle-ish; aria-pressed true when riding. Fine.
+
+Also disable? No: speed 0 while riding is allowed (legs hold still? If ω=0, legs static at current angle — fine).
+
+Let me also handle: clicking ride toggles state.riding; status updates "Pedalling" / "Paused". And speed change updates status? Might be noisy; the readout suffices. Status messages: on palette change, download, copy, ride toggle, reduced motion start, errors. Keep concise.
+
+Now write the code carefully.
+
+```js
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const VIEW_W = 900, VIEW_H = 620;
+const GROUND_Y = 520;
+const INK = '#2a2f3a';
+const STROKE = { tubeOuter: 15, tubeInner: 8, thin: 6, thinOuter: 9 }; // hmm
+```
+Simplify: helper functions with literal widths.
+
+```js
+function tube(x1,y1,x2,y2,color,inner=8,outer=15){
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${INK}" stroke-width="${outer}" stroke-linecap="round"/>` +
+         `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${inner}" stroke-linecap="round"/>`;
+}
+```
+Numbers should be rounded to keep output tidy: use `n(v)` = Math.round(v*10)/10. Fine, or just template with numbers as-is (they're from constants, mostly integers). Legs produce floats — round to 1 decimal.
+
+spokes:
+```js
+function spokes(cx, cy, rInner, rOuter, count, color){
+  let out = '';
+  for (let i=0;i<count;i++){
+    const a = (i/count)*Math.PI*2;
+    out += `<line x1="${f(cx+rInner*Math.cos(a))}" ... stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+  }
+  return out;
+}
+```
+f = v => Math.round(v*100)/100.
+
+Cloud markup:
+```js
+function cloud(x, y, s, color){
+  return `<g transform="translate(${x} ${y}) scale(${s})"><circle cx="-40" cy="4" r="24"/><circle cx="-6" cy="-12" r="31"/><circle cx="36" cy="2" r="24"/></g>` with fill=color, opacity .95 on group.
+}
+```
+Since I animate transforms, the group must carry the translate; scaling baked in. Fine — I'll update `transform` attribute with translate only, keeping the same scale: I'll store cloud defs {el, x, y, s} and set `translate(x y) scale(s)`.
+
+Now buildSVG(palette) returns string. Let me write it fully with all parts.
+
+```js
+function buildSVG(p){
+  const rear = WHEEL_REAR, front = WHEEL_FRONT;
+  return `
+<svg xmlns="${SVG_NS}" viewBox="0 0 ${VIEW_W} ${VIEW_H}" width="${VIEW_W}" height="${VIEW_H}" role="img" aria-labelledby="sceneTitle sceneDesc">
+  <title id="sceneTitle">A pelican riding a bicycle</title>
+  <desc id="sceneDesc">A cartoon pelican with a long beaked pouch perched on a saddle, pedalling a city bicycle.</desc>
+  <defs>
+    <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${p.skyTop}"/>
+      <stop offset="1" stop-color="${p.skyBottom}"/>
+    </linearGradient>
+  </defs>
+  <rect width="${VIEW_W}" height="${VIEW_H}" fill="url(#skyGrad)"/>
+  <circle cx="772" cy="86" r="44" fill="${p.sun}"/>
+  <g opacity="0.95" fill="${p.cloud}" id="clouds">${cloudsMarkup()}</g>
+  <rect x="0" y="${GROUND_Y}" width="${VIEW_W}" height="${VIEW_H-GROUND_Y}" fill="${p.ground}"/>
+  <line x1="0" y1="${GROUND_Y}" x2="${VIEW_W}" y2="${GROUND_Y}" stroke="${p.groundDark}" stroke-width="3"/>
+  <ellipse cx="470" cy="${GROUND_Y+6}" rx="230" ry="11" fill="${p.shadow}" opacity="0.45"/>
+  ... bike ...
+</svg>`;
+}
+```
+Wait: shadow ellipse under wheels — wheels bottom at 520 = GROUND_Y, so ellipse at cy 524 with ry 10 spans 514-534, drawn before bike so wheels overlap its top. Fine.
+
+Hmm: the ground rect covers y 520..620 — the shadow ellipse at cy 526 rx 230 spans x 240..700 ✓ under the bike.
+
+Bike markup:
+
+```js
+// wheels
+`<g>
+  <circle cx="${rear.x}" cy="${rear.y}" r="74" fill="none" stroke="${INK}" stroke-width="9"/>
+  <circle cx="${rear.x}" cy="${rear.y}" r="64" fill="none" stroke="${INK}" stroke-width="2.5" opacity="0.55"/>
+  <g id="spokesRear" transform="rotate(0 ${rear.x} ${rear.y})">${spokes(...)}</g>
+  <circle cx="${rear.x}" cy="${rear.y}" r="9" fill="${p.hub}" stroke="${INK}" stroke-width="3"/>
+  <circle cx="${rear.x}" cy="${rear.y}" r="19" fill="${p.bike}" stroke="${INK}" stroke-width="3.5"/>
+</g>`
+```
+Hmm the cog (r19) at the rear hub overlapping the hub circle r9 — draw cog then hub on top: cog r19 fill bike, hub r8 fill hub color. OK.
+
+Order: tire ring, inner rim ring, spokes, cog, hub.
+
+Front wheel same minus cog (front hub just a hub circle + maybe a small disc? no).
+
+Frame tubes (order: chainstay, seatstay, seat tube, down tube, top tube, fork, stem, handlebar):
+```js
+tube(rear.x, rear.y, BB.x, BB.y, p.bike)            // chainstay
+tube(rear.x, rear.y, SEAT_TOP.x, SEAT_TOP.y, p.bike) // seat stay
+tube(BB.x, BB.y, SEAT_TOP.x, SEAT_TOP.y, p.bike)     // seat tube
+tube(BB.x, BB.y, HEAD_BOT.x, HEAD_BOT.y, p.bike)     // down tube
+tube(SEAT_TOP.x, SEAT_TOP.y, HEAD_TOP.x, HEAD_TOP.y, p.bike) // top tube
+tube(HEAD_BOT.x, HEAD_BOT.y, front.x, front.y, p.bike) // fork
+tube(HEAD_TOP.x, HEAD_TOP.y, STEM_TOP.x, STEM_TOP.y, p.bike) // stem
+```
+Handlebar: path `M ${HB_L} ${HB_Y} Q ${HB_MID} ${HB_Y-10} ${HB_R} ${HB_Y}` with tube-like double stroke (use a `tubePath` helper: two stroked paths). Let me write helper:
+```js
+function tubePath(d, color, inner=9, outer=14){
+  return `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${outer}" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${color}" stroke-width="${inner}" stroke-linecap="round"/>`;
+}
+```
+And `tube` uses tubePath with `M x1 y1 L x2 y2`? Simpler: tube = tubePath(`M${x1} ${y1}L${x2} ${y2}`, ...). Yes, one helper.
+
+Saddle:
+```js
+`<g transform="rotate(-4 ${SEAT_TOP.x} ${SEAT_TOP.y})">
+   <rect x="${SEAT_TOP.x-42}" y="${SEAT_TOP.y-7}" width="84" height="14" rx="7" fill="${p.bikeAccent}" stroke="${INK}" stroke-width="4"/>
+ </g>`
+```
+Seat top (330,300): rect y 293..307, rotated -4° around (330,300) → the seat tilts. The body bottom (~292) sits on it ✓.
+
+Chainring + chain:
+```js
+`<line chain top/bottom stroke="${p.chain}" stroke-width="3.5"/>` (no ink)
+`<circle cx=BB r=46 fill="${p.bike}" stroke="${INK}" stroke-width="5"/>`
+`<circle cx=BB r=32 fill="none" stroke="${INK}" stroke-width="3" opacity="0.35"/>`
+```
+Chain lines should attach to ring/cog tangency, roughly: top from (BB.x, BB.y - 46) to (rear.x, rear.y - 19); bottom (BB.x, BB.y + 46) to (rear.x, rear.y + 19). ✓
+
+Crank group:
+```js
+`<g id="crank" transform="rotate(0 ${BB.x} ${BB.y})">
+   ${tubePath(`M${BB.x-96} ${BB.y}L${BB.x} ${BB.y}`, p.bikeShade, 7, 13)}   // far arm pointing left
+   <rect x="${BB.x-106}" y="${BB.y-5}" width="20" height="10" rx="5" fill="${p.bikeShade}" stroke="${INK}" stroke-width="3"/>
+   ${tubePath(`M${BB.x} ${BB.y}L${BB.x+96} ${BB.y}`, p.bike, 8, 13)}          // near arm
+   <rect x="${BB.x+96}" y="${BB.y-5}" width="20" height="10" rx="5" fill="${p.bikeAccent}" stroke="${INK}" stroke-width="3"/>
+ </g>`
+```
+Wait: pedal rect positioned at the arm end: for the left arm, end at BB.x-96 → rect x = BB.x-106..-86 centered at BB.x-96 ✓ (rect x = end - 10, width 20).
+
+Rotation: `rotate(-θdeg, BB.x, BB.y)` puts the right-pointing arm at angle -θ (up-right for positive θ). And JS computes near pedal at (BB.x + R cosθ, BB.y - R sinθ) ✓ consistent.
+
+Legs group:
+```js
+`<g id="legs">
+  <path id="legFar" d="" fill="none" stroke="${p.legShade}" stroke-width="14" stroke-linecap="round"/>
+  <ellipse id="footFar" rx="10" ry="7" fill="${p.legShade}" stroke="${INK}" stroke-width="3"/>
+  <path id="legNear" d="" fill="none" stroke="${p.leg}" stroke-width="15" stroke-linecap="round"/>
+  <ellipse id="footNear" rx="10.5" ry="7.5" fill="${p.leg}" stroke="${INK}" stroke-width="3"/>
+</g>`
+```
+Legs drawn after the bike but before the pelican ✓. Feet on top of pedals ✓ (pedals drawn in crank group before legs).
+
+Wait — the far leg should be drawn before the crank group ideally? The far leg's foot sits on the far pedal; if legs are drawn after the crank group, the far foot covers the far pedal ✓ desired.
+
+Pelican group as discussed.
+
+Now the JS refs after render: 
+```js
+function cacheRefs(){
+  refs = {
+    svg: stage.querySelector('svg'),
+    spokesRear: stage.querySelector('#spokesRear'),
+    spokesFront: ...,
+    crank: ...,
+    legNear: ..., legFar: ..., footNear: ..., footFar: ...,
+    clouds: [...stage.querySelectorAll('#clouds g')]
+  };
+}
+```
+Careful: `stage.querySelector('svg')` — stage is the div; set innerHTML then query. Also ids must be unique in the document — only one SVG at a time ✓. But `document.getElementById` would also work; use querySelector scoped to stage to avoid clashes with UI ids... I use ids like "spokesRear" only in SVG. But careful: the UI has no conflicting ids. Still, scope queries to `stage` for safety.
+
+Cloud elements: I put `<g class="cloud">` inside `<g id="clouds">` each with its own transform. Query `#clouds > g` and store base positions? I generate them so I know x,y,s — store in an array alongside refs: `refs.clouds = [{el, x, y, s}, ...]` where data comes from the builder. Let me have buildSVG also return the cloud layout: keep it simple — define CLOUDS constant array in JS used by builder, and reuse for drift updates. 
+
+```js
+const CLOUDS = [ {x:150,y:120,s:1},{x:360,y:72,s:0.72},{x:660,y:150,s:0.85},{x:830,y:104,s:0.6} ];
+```
+4 clouds. Builder maps to markup with translate+scale; drift updates transform = `translate(${x} ${y}) scale(${s})`.
+
+Cloud drift: x -= speed*dt; if (x < -170) x = VIEW_W + 170 + (index*37 % 90)? Deterministic and simple: `x = VIEW_W + 170 + i*60`. Hmm with scale, cloud width ~ ±75*s. Wrap threshold -180 fine.
+
+Now, is the cloud drift speed tied to ride state? `const cloudSpeed = 3 + (state.riding ? 10 + state.speed*0.06 : 3)` px/s. Fine, subtle.
+
+Also: should clouds be idle-animated when paused? Yes, gentle always-on drift unless reduced motion. OK.
+
+Now the frame function:
+
+```js
+let lastTs = 0;
+function frame(ts){
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min((ts - lastTs)/1000, 0.05);
+  lastTs = ts;
+  if (refs){
+    if (reducedMotion){ /* nothing */ }
+    else {
+      const omega = state.riding ? (state.speed/100)*MAX_OMEGA : 0;
+      if (omega > 0){ state.angle = (state.angle + omega*dt) % TAU; applyPedal(state.angle); }
+      driftClouds(dt);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+```
+applyPedal(angle): 
+```js
+const deg = angle*180/Math.PI;
+refs.spokesRear.setAttribute('transform', `rotate(${f(deg)} ${RH.x} ${RH.y})`);
+refs.spokesFront.setAttribute('transform', `rotate(${f(deg)} ${RH.x} ${RH.y})`);  // same
+refs.crank.setAttribute('transform', `rotate(${f(-deg)} ${BB.x} ${BB.y})`);
+// feet
+const near = pedalPos(angle), far = pedalPos(angle+Math.PI);
+setLeg(refs.legNear, refs.footNear, NEAR_HIP, near);
+setLeg(refs.legFar, refs.footFar, FAR_HIP, far);
+```
+pedalPos(a) => ({x: BB.x + CRANK_R*Math.cos(a), y: BB.y - CRANK_R*Math.sin(a)}).
+
+setLeg(pathEl, footEl, hip, foot): 
+```js
+pathEl.setAttribute('d', legPath(hip, foot));
+footEl.setAttribute('cx', f(foot.x)); footEl.setAttribute('cy', f(foot.y));
+```
+
+Note: when paused, legs stay; when re-enabled, continues ✓.
+
+Initial: state.angle = 0 → applyPedal once after render so legs aren't empty (empty d = nothing drawn; must set on render). So after cacheRefs, call applyPedal(state.angle) if refs. But careful: if reduced motion and paused, legs still need a pose ✓ (applyPedal called regardless of riding).
+
+Also on palette change, re-render → cacheRefs → applyPedal ✓.
+
+Edge: `state.angle % TAU` with negative? omega ≥ 0 so fine; but guard `%` of positive fine.
+
+Reduced motion detection:
+```js
+const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+let reducedMotion = motionQuery.matches;
+motionQuery.addEventListener?.('change', e => { reducedMotion = e.matches; ... });
+```
+If it changes to true while riding → animation stops naturally since `if (reducedMotion)` skips updates; but state.riding stays true and button says "Pause pedalling" while nothing moves — acceptable? Better: when it becomes true, set riding false and update button. When false→? If it becomes false, don't auto-resume (respect that user hasn't asked). I'll handle: on change, if matches → state.riding=false; render? No need to re-render SVG, just update button label + status "Reduced motion: animation paused". Use addEventListener with fallback (old Safari uses addListener — skip, guard with typeof).
+
+Initial: if reducedMotion → state.riding = false; status "Reduced-motion preference detected — animation off." and ride button labeled accordingly.
+
+Now the render function:
+
+```js
+function render(){
+  stage.innerHTML = buildSVG(PALETTES[state.paletteIndex]);
+  cacheRefs();
+  applyPedal(state.angle);
+  syncControls();
+}
+```
+syncControls: ride button label/aria-pressed, speed output text, swatch aria-pressed + class.
+
+Event wiring:
+- rideBtn click: state.riding = !state.riding; syncControls(); status(state.riding ? 'Pedalling.' : 'Paused.');
+- speed input: 'input' → state.speed = clamp(Number(speed.value) || 0, 0, 100); speedOut.textContent = `${state.speed}%`; (only update state; no re-render needed) — status? no.
+- swatch click: state.paletteIndex = Number(btn.dataset.palette) || 0; render(); status(`Palette: ${PALETTES[i].name}`).
+- download: serialize.
+- copy: clipboard.
+
+Serialize:
+```js
+function serializeSVG(){
+  const svg = refs && refs.svg;
+  if (!svg) return null;
+  return new XMLSerializer().serializeToString(svg);
+}
+```
+Note: serializeToString on an SVG element created via innerHTML parsing in an HTML document — the element is in the SVG namespace correctly (browser parses `<svg>` in innerHTML as SVG ✓).
+
+Download:
+```js
+function downloadSVG(){
+  const markup = serializeSVG();
+  if (!markup){ setStatus('Nothing to export yet.', 'warn'); return; }
+  try {
+    const blob = new Blob([markup], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pelican-bicycle-${PALETTES[state.paletteIndex].id}.svg`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 5000);
+    setStatus('SVG downloaded.');
+  } catch(err){ setStatus('Download failed in this browser — try Copy SVG.', 'warn'); }
+}
+```
+Filename with palette id (e.g., 'daylight'). Palettes get `id`.
+
+Copy:
+```js
+async function copySVG(){
+  const markup = serializeSVG();
+  if (!markup){ setStatus('Nothing to copy yet.','warn'); return; }
+  try {
+    if (navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(markup);
+      setStatus('SVG markup copied to clipboard.');
+      return;
+    }
+    throw new Error('clipboard unavailable');
+  } catch(err){
+    if (copyViaTextarea(markup)) setStatus('SVG markup copied to clipboard.');
+    else setStatus('Copy blocked by the browser — use Download SVG.', 'warn');
+  }
+}
+function copyViaTextarea(text){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.top='-1000px';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand && document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch(err){ return false; }
+}
+```
+Note: `document.execCommand` may be undefined → guard `typeof document.execCommand === 'function'`. Fix: `const ok = typeof document.execCommand === 'function' && document.execCommand('copy');` — execCommand returns boolean.
+
+Note clipboard writeText requires secure context; file:// might be considered secure? Not necessarily; fallback covers it. Also note: `navigator.clipboard.writeText` may reject → caught ✓.
+
+setStatus(msg, kind): statusEl.textContent = msg; statusEl.dataset.kind = kind || 'info' → CSS colors: info muted, warn amber.
+
+Also the initial status: "Ready — 4 palettes, 1 SVG." or after reduced-motion message.
+
+Now CSS. Theme: dark UI, warm accent.
+
+```css
+:root{
+  --bg:#0f141b; --bg-2:#151d26; --panel:#1a2330; --line:#28323f;
+  --text:#e9eff6; --muted:#93a3b5; --accent:#ffb703; --accent-ink:#241a00;
+  --ok:#6ee7a8; --warn:#ffb703;
+  --radius:16px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0; min-height:100vh; background: radial-gradient(1200px 600px at 15% -10%, #1d2b3a 0%, transparent 60%), linear-gradient(160deg,#0f141b,#131b24 60%,#0d1218); color:var(--text); padding:clamp(16px,3vw,40px); }
+```
+Header: h1 with letter-spacing, gradient text? Keep simple: h1 font-size clamp(1.5rem, 3.4vw, 2.1rem), margin 0 0 6px; .sub color muted, margin 0, max-width 62ch, line-height 1.5.
+
+Layout: `display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:22px; max-width:1240px; margin:0 auto; align-items:start;` and media query max-width 900px → 1fr, panel below.
+
+Stage card: background: linear-gradient(180deg,#ffffff,#eef3f8)? The SVG has its own sky; a white card around it is fine and makes the illustration pop on dark UI. Use `background:#f7fafc; border-radius:var(--radius); padding:14px; box-shadow: 0 20px 40px -24px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,255,255,.06)`. Hmm inset on light bg — use border 1px solid #dfe7ef. Stage inner: `svg{display:block;width:100%;height:auto;border-radius:10px}`.
+
+Caption: small muted text under? Put caption inside panel? Add `<p class="caption">Vector artwork · scales to any size · 900×620 viewBox</p>` under the stage.
+
+Panel: background var(--panel), border 1px solid var(--line), radius, padding 18px, display flex column gap 16px, sticky on desktop? `position:sticky; top:24px` could be nice but with grid align-items:start works. Keep sticky only on wide screens — simpler: no sticky.
+
+Controls styling:
+- .control{display:flex;flex-direction:column;gap:8px}
+- label row: display flex justify-between align-items baseline; font-size .82rem; letter-spacing .04em; text-transform uppercase; color muted.
+- output: color accent, font-variant-numeric tabular-nums.
+- input[type=range]: width 100%, accent-color var(--accent); height? Use `accent-color` and default styling — modern enough. Add `cursor:pointer`.
+- buttons: .btn { appearance:none; border:1px solid var(--line); background:#202b39; color:var(--text); padding:10px 14px; border-radius:10px; font:inherit; font-size:.9rem; cursor:pointer; transition: background .15s, border-color .15s, transform .05s } hover background #26333f; active translateY(1px); focus-visible outline 2px solid var(--accent) offset 2px.
+- .btn-primary{background:var(--accent); color:var(--accent-ink); border-color:transparent; font-weight:650} hover #ffc43d.
+- .swatches{display:grid;grid-template-columns:repeat(3,1fr);gap:8px} .swatch{display:flex;flex-direction:column;gap:6px;align-items:center;padding:8px 6px;...same as btn but smaller} .chip{width:100%;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--c1),var(--c2)); box-shadow: inset 0 0 0 1px rgba(0,0,0,.25)} .swatch[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset? } Use outline: `outline:2px solid var(--accent); outline-offset:2px` when pressed — visible feedback ✓.
+- .status{margin:0; font-size:.82rem; color:var(--muted); min-height:1.2em} [data-kind="warn"]{color:var(--warn)} [data-kind="ok"]{color:var(--ok)}.
+
+Buttons in row: `.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}`.
+
+Also a footer hint line? Not needed.
+
+Reduced motion also affects CSS transitions? Not needed.
+
+Now, one more consideration: the `stage` div id vs variable name; I'll use `const stage = document.getElementById('stage')`.
+
+Also handle: `stage.innerHTML = ...` — safe since content is from our own builder with palette hex values (no user input) ✓. Palette colors are hardcoded constants, no injection risk.
+
+Let me double check the pelican silhouette path once, writing final numbers (I'll accept slight weirdness; it's stylized):
+
+```
+M 244 272
+C 234 256 226 232 238 218
+C 256 202 272 200 286 206
+C 312 200 330 210 340 222
+C 356 208 368 198 382 190
+C 390 180 404 169 420 178
+C 432 186 438 202 432 212
+L 484 212
+L 470 246
+C 454 258 438 246 428 234
+C 420 240 396 248 368 258
+C 348 268 316 274 292 286
+C 272 296 256 290 244 272
+Z
+```
+Check: (238,218)→(286,206) via controls (256,202),(272,200): gentle dome ✓. (286,206)→(340,222) controls (312,200),(330,210) ✓ shoulder. (340,222)→(382,190) controls (356,208),(368,198): neck rising to the head back ✓. (382,190)→(420,178) controls (390,180),(404,169): head top-left ✓. (420,178)→(432,212) controls (432,186),(438,202): head front down to chin ✓. Then beak top edge L to (484,212) — wait, the head front is at x≈432-438, and the beak starts there going to 484 at y212, roughly horizontal ✓. Then L (470,246): lower mandible/pouch bottom ✓ (pouch hangs 34 below the upper edge — big pouch ✓). Then C back to (428,234): pouch front curve ✓ then chest C (420,240),(396,248) → (368,258) ✓ then belly C → (292,286) ✓ then bottom-left curve back to start (244,272) ✓.
+
+Hmm, one issue: the pouch bottom at (470,246) then curving to (428,234) — that's a deep V-ish; the pouch should bulge *downward* (convex down). Control points (454,258),(438,246): from (470,246) with control (454,258) → dips to about y 254 around x 458, then rises to (428,234) ✓ good bulge.
+
+The head circle implied: does the outline at the head region look round? Points (382,190),(420,178),(432,212) — the head spans roughly x 382..440, y 169..212 → center ~(410,190) r ~25 ✓ close enough to my planned eye position (400,188) ✓ and nostril at (452,212)? The upper mandible line runs from (432,212) to (484,212) — nostril at (460,208) sits on it ✓ (small ellipse rx1.8 ry1.3, fill ink, opacity .6).
+
+Eye at (400,186) r 4.5 fill ink, glint r 1.6 at (401.6,184.4) fill #fff → but the glint over the ink eye ✓.
+
+Wing path: `M 350 214 C 326 224 306 244 298 270 C 290 290 308 300 328 298 C 326 274 328 246 348 220 Z` — check the wing stays inside the body silhouette: body right edge at y 220 ≈ x 360ish (from the top curve (286,206)→(340,222)→... the right boundary at y≈230 is around x 355?). The wing max x = 350 ✓ inside. Bottom: body bottom around y 286 at x 292; wing bottom ~299 at x 308-328 — might be slightly below the body outline near the bottom-right (body bottom curve: from (368,258) via (348,268),(316,274) to (292,286)) → at x 328, body bottom edge y ≈ 280; wing bottom at 298 → the wing pokes below the body outline by ~18px → visible as a bump under the belly. Lower the wing bottom to ~290 and shift: `M 350 214 C 326 222 306 242 298 266 C 290 284 306 292 326 290 C 326 270 328 244 348 220 Z`. Body bottom at x 300 ≈ 284ish; wing bottom 292 near x 298-326 → close enough; slight overlap below looks like wing tip near the belly — acceptable, or I can just clip the wing to the body? No clipPath complexity... Actually I could add a clipPath using the body path! `<clipPath id="bodyClip"><path d="..."/></clipPath>` and wing with clip-path="url(#bodyClip)". That guarantees the wing never pokes out. Nice and safe. But clipPath with a path containing the same d — I'd need to duplicate the path string (fine, build with a constant BODY_PATH). Let's do that: define BODY_D string constant used in both the silhouette path and the clipPath. 
+
+Similarly the eye/nostril don't need clipping.
+
+But careful: clipPath default clipPathUnits="userSpaceOnUse" ✓ works with the same coordinates.
+
+Also legs behind the body: legs drawn before the pelican group ✓ so hips hidden behind body silhouette. But the near hip (330,288) vs body bottom edge — the leg emerges from the body's lower edge; since the body covers it, the leg appears to come out from under the belly ✓.
+
+Hmm, but wait: legs drawn BEFORE the body but the legs are inside the "legs" group which is drawn after the bike and before the pelican group ✓.
+
+Order in SVG:
+1. sky rect, sun, clouds
+2. ground rect, ground line, shadow ellipse
+3. rear wheel group, front wheel group
+4. frame tubes, chain, chainring, cog(already in wheel group), saddle
+5. crank group (arms + pedals)
+6. legs group
+7. pelican (tail, body, wing[clip], eye, nostril)
+
+Tail drawn before body within the pelican group ✓ (tail behind body).
+
+Let me also double check the front wheel doesn't collide with the fork/down tube weirdly — fine.
+
+One more: handlebar at y≈252 and stem top (548,254)? I set HEAD_TOP (556,296), stem to STEM_TOP (548,254), bar path `M 530 254 Q 548 242 568 252`? Let me define constants: HEAD_TOP = {x:556,y:296}, HEAD_BOT = {x:564,y:362}, STEM_TOP = {x:548,y:254}, BAR: `M 530 256 Q 548 242 568 254`. Hmm the bar should be near the stem top end (548,254) — a bar from 530..568 centered ~549 ✓ good.
+
+Seat top: SEAT_TOP = {x:330,y:300}. BB (438,386). Rear hub (288,446). Front hub (612,446). Wheel r 74 → wheel top at 372; BB at 386 is below the top of the wheels ✓ plausible.
+
+Top tube from (330,300) to (556,296): nearly flat ✓. Down tube from (438,386) to (564,362): slope -24 over 126 ✓ gentle. Seat tube (438,386)→(330,300): slope +86/-108 (leaning back) ✓. Chainstay (438,386)→(288,446) ✓. Seat stay (330,300)→(288,446): slope +146/+118, steeper than seat tube — realistic-ish (seat stays go from the top of the seat tube back to the rear axle, so they're roughly parallel-ish to the seat tube but longer... actually seat stays go from the seat tube top (near the saddle) to the rear dropout; the saddle sits above the seat tube top. So the seat stay from the seat cluster (330,300) to (288,446) is correct ✓.
+
+Fork (564,362)→(612,446) ✓.
+
+Everything is consistent enough. 
+
+Now, crank radius 96 with BB at 386: bottom pedal at 482 → above ground 520 by 38 ✓ (pedal at bottom when leg extended, but the pelican's leg to pedal at bottom: hip (330,288) to (438,482) → distance ~200 → long leg but cartoon ✓. Hmm, at angle 90° (top), pedal at (438,290) — right at the hip height, distance ~108 ✓.
+
+The far leg hip (300,286) to far pedal (angle+180).
+
+Leg stroke width 14-15 with round caps → chunky cartoon legs ✓. Color leg #f0a878 (daylight) with... legs have no ink outline; a mid-tone against the white body — the top of the leg is hidden behind the body, the bottom over the bike frame (bike is blue) — leg color orange-ish stands out ✓ fine. Maybe add subtle darker outline? Can't outline a stroke easily (would need two strokes: outer ink wider, inner leg narrower — actually that's the same trick! stroke ink width 17 then leg width 14 → outlined leg ✓). Do that for legs: in setLeg, update both? That needs two path elements per leg. Simpler: keep the leg as a single stroke in leg color; add a thin darker "feathering"? Nah — outlined legs look better and consistent. I'll render each leg as two paths: `#legFarOut` (ink, 17) and `#legFar` (legShade, 13)? Then feet: ellipse with ink stroke ✓ already outlined. Hmm, but the ink outline of a stroked path with round caps = a slightly wider stroke underneath ✓ easy: draw ink path first then color path on top. Both need identical d updates — 2 setAttribute per leg per frame, fine.
+
+Actually simpler: keep legs single-stroke in the leg color and rely on the color contrast. Many flat illustrations do outline-less limbs. But our palette ink outlines everything else... Two paths is cheap and looks better. Do it: legOut(ink, 18), leg(leg, 15) near; far: ink 18, legShade 15? For depth, far leg: color slightly darker AND drawn first ✓ keep same widths for a consistent outline.
+
+Wing feather lines: 2 arcs in ink opacity .45, stroke 3, inside the wing; with clipping? They're inside the wing shape mostly; place them carefully: `M 316 246 C 304 256 302 270 312 282` and `M 330 236 C 322 248 322 262 332 274`. Wing region spans roughly x 298..350, y 214..290 — these arcs at x 304..332 ✓ inside-ish; with clip-path on the wing group? The wing is one path with fill+stroke; feather lines as separate paths inside a `<g clip-path="url(#bodyClip)">` ✓ safe.
+
+Let me write the wing group: 
+```
+<clipPath id="bodyClip"><path d="${BODY_D}"/></clipPath>
+...
+<g clip-path="url(#bodyClip)">
+  <path d="${WING_D}" fill="${p.wing}" stroke="${INK}" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M 316 246 C 304 256 302 272 314 284" fill="none" stroke="${INK}" stroke-width="3" opacity="0.4"/>
+  <path d="M 332 234 C 322 244 320 260 330 272" fill="none" stroke="${INK}" stroke-width="3" opacity="0.4"/>
+</g>
+```
+Wing stroke getting clipped at the body edge — the wing's own outline stroke would be cut where it meets the body boundary... The wing is inside the body so its stroke is inside → no clipping visible except if the wing shape touches the body outline exactly. ✓ Good, clipping just guarantees containment.
+
+Hmm, but the wing's ink stroke where it lies adjacent to... fine.
+
+Also: does the wing overlap the legs region? Wing at y 214-290, legs at hips y 286-292 — legs are drawn BEFORE the pelican so the body+wing cover the hip area ✓.
+
+Now the sun: circle at (772,86) r44 fill p.sun — with a soft look? Add opacity .85. Fine.
+
+Clouds drawn before ground? Clouds are in the sky region (y 72-150 + radius ~31 → up to y ~190) ✓ above ground 520, no overlap issue. Order: sky, sun, clouds, ground, shadow, bike. Clouds behind ground? They don't overlap; fine.
+
+Let me now also double check `spokes` inner radius: from rInner=9 (hub) to rOuter=62 (inside the rim ring at 64). Spoke count 12 → 30° apart ✓.
+
+Wheel group markup:
+```
+<g>
+  <circle cx=".." cy=".." r="74" fill="none" stroke="${INK}" stroke-width="9"/>
+  <circle cx cy r="62" fill="none" stroke="${INK}" stroke-width="2" opacity="0.5"/>
+  <g id="spokesRear" transform="rotate(0 x y)">…spokes…</g>
+  <circle cx cy r="19" fill="${p.bike}" stroke="${INK}" stroke-width="3.5"/>   // cog, rear only
+  <circle cx cy r="9" fill="${p.hub}" stroke="${INK}" stroke-width="3"/>
+</g>
+```
+Hmm the rim ring at r62 stroke 2 opacity .5 — subtle. And tire ring stroke 9 in ink: the tire reads as a dark ring; maybe better: tire = thick ink ring, then a lighter inner? With spokes over sky it reads fine as a cartoon wheel (like a wire wheel with dark tire). OK.
+
+But: the ink ring at r74 sw=9 covers r 69.5..78.5; the rim circle r62 sw2 → 61..63; spokes 9→62 ✓ just touching. Adjust spokes outer to 61.
+
+Also add a thin "tire" lighter band inside? Skip.
+
+Front wheel: same without cog, and hub r9. Also maybe a brake disc? no.
+
+The bike frame color p.bike on tubes with the ink outline ✓.
+
+Chain color p.chain (#6b7c8c daylight) lines width 3.5 ✓.
+
+Let me write the final code now. I'll be careful with template literal nesting (backticks inside the builder with ${} — fine).
+
+One more thing: `f()` rounding helper for path numbers: `const f = n => Math.round(n * 10) / 10;` — for transform rotate values with 1 decimal ✓ fine.
+
+Also, the crank rotate: `rotate(${f(-deg)} ${BB.x} ${BB.y})` — deg can be large (accumulates) → mod it to avoid huge numbers: keep state.angle in [0, TAU) and deg = angle*180/PI ∈ [0,360) ✓ negatives only for -deg → fine.
+
+Spokes rotate same deg for both ✓ (wheels same speed, same phase — visually fine).
+
+Now writing everything out. Also add `<noscript>`? Not needed (page requires JS; but the SVG is JS-generated... without JS the stage is empty). Add a fallback message inside #stage in HTML: `<p class="fallback">Your browser can’t run JavaScript, so the illustration can’t be drawn.</p>` and replace innerHTML on render (innerHTML replaces it) ✓ nice touch. But careful: cacheRefs queries svg — if JS is off, no script runs anyway. Fine.
+
+Also: `stage.innerHTML = buildSVG(...)` — buildSVG returns a string starting with `<svg ...>`; setting innerHTML on a div parses in SVG namespace correctly for `<svg>` ✓.
+
+Let me write the puck: also add `preserveAspectRatio` default (xMidYMid meet) ✓.
+
+Final check on the palettes' `sun` and `shadow` fields and all used fields: skyTop, skyBottom, sun, cloud, ground, groundDark, shadow, body, bodyShade?, wing, beak, beakDark, leg, legShade, bike, bikeShade, bikeAccent, spoke, hub, chain, groundDark. 
+
+bodyShade: do I use it? Maybe for a belly shading ellipse under the body — skip to avoid unused fields ("no dead code"). Let me use bodyShade for the pelican's underwing/belly patch: an ellipse along the body's lower edge with fill bodyShade opacity .55 — adds depth. Path: `<ellipse cx="296" cy="282" rx="52" ry="16" fill="${p.bodyShade}" opacity="0.5"/>` — placed inside the body near its bottom. But it might cross the outline near the bottom-left... it's inside the body silhouette region roughly; slight overflow possible → wrap in the same clip group ✓ put it in the clipped group. But then the wing also in that group; order: belly shade ellipse, then wing, then feather lines. But the belly ellipse over the legs' hidden tops — fine.
+
+Hmm, careful: the clipped group contains body-clip; the ellipse at (296,282) rx52 ry16 spans 244..348 x, 266..298 y — the body outline at y≈280 spans roughly x 250..355 → the ellipse corners might exceed slightly at the left (244 vs body edge ~252 at y280?) — clipping handles it ✓.
+
+Also beakDark used for the nostril ✓, beak for the beak fill (part of body path fill = p.beak? No!). Wait — the beak is part of the silhouette path which uses fill = body color. If the body+head+beak are one path with one fill, the beak would be body-colored, not beak-colored. I need the beak as a separate shape drawn on top of the head, in beak color, with its own ink outline, and the head silhouette shouldn't include the beak mandibles.
+
+Redo: silhouette = body + neck + head only (no beak). Then beak shape drawn after: upper mandible + lower mandible/pouch as one path:
+```
+M 424 204 C 440 206 462 210 480 214 C 476 220 470 224 464 224 L 466 232 C 460 240 452 244 446 236 C 438 230 428 222 420 220 Z
+```
+Hmm, let me design the beak as: starts at head front-top (≈430,206) → tip (484,214) → back along the lower mandible to (470,232) → pouch bulge down-left to (452,250) → up to head front-bottom (426,228) → close along the head edge back to (430,206)? The closing edge would be hidden behind... no, the closing edge is the boundary between head and beak drawn as a line — visible as a seam on the head. Real illustrations do show the head-beak junction line sometimes, but cleaner: make the beak shape's left edge coincide with the head's front arc, so the seam follows the head outline... can't easily.
+
+Alternative: draw beak first (behind head), then head over it. Then the beak's left portion is hidden behind the head and the visible seam is exactly where the head circle covers it — the head's ink outline crosses the beak base, which looks like the beak emerging from the head ✓ That's the standard cartoon approach and looks right.
+
+So order inside pelican group: tail → beak (draw before head? but beak must attach at head front which is above/right of the body...) Let's do: tail → body+neck+head silhouette (BIRD_D) → beak path on top? If beak on top, its left edge line shows over the head. If beak behind the head (drawn before the head but the head is part of BIRD_D which includes body+neck+head as one path)... I can split: draw BODY_NECK (without head) as path, then beak, then head circle-ish path on top? Splitting the silhouette into body+neck and head as two paths means a seam line at the neck-head junction — but that junction is inside the silhouette (neck meets head at an angle), so the seam would show as a line across the neck. Hmm, actually where the head circle overlaps the neck top, the seam = the head's outline crossing the neck → looks like the head is attached; with a thick outline it might look odd but commonly seen in flat vector art (e.g., a circle head on a body with a visible neck seam). 
+
+Cleanest: single silhouette path for body+neck+head (BIRD_D), then the beak drawn ON TOP but with its left edge tucked: draw the beak such that its left end is inside the head region (e.g., starts at x 404 which is inside the head circle centered ~(408,196) r 26 — a point at (404, 206) is inside: distance from (408,196) = sqrt(16+100)=10.8 < 26 ✓). Then the beak's left edge line crosses the head interior → visible seam line from (404,206) to the head's edge... The beak outline would show a vertical line inside the head. Unless the beak path's left side follows the head circle arc exactly (impossible by hand).
+
+Alternative: accept a tiny seam — draw the beak as a shape whose left edge is a straight-ish line from (424,202) to (430,224) (just at the head's right edge, x≈434 at y 210). If the beak's left edge lies essentially ON the head's outline, the seam coincides with the head outline → invisible! The head's right edge: circle center (408,196) r 26 → at y=206, x = 408 + sqrt(676-100)=408+24=432; at y=224, x=408+sqrt(676-784) → imaginary, so the head's bottom is at y=222. So head front arc from (432,206) down to (408,222)... The beak emerges from the head around (432, 206)-(434,216). So the beak's left edge from (430,204) to (432,218) is essentially on the head edge ✓ then close the path along the head edge... I'll just draw a straight left edge from (428,202) to (432,220) — a 14px-wide flat base hidden against the head's round edge (within a couple px) — the seam would be a tiny sliver, negligible, and it's covered by... hmm, the head outline stroke (ink 5) is drawn as part of BIRD_D; the beak drawn after covers the head's edge stroke in that 14px span → the head outline line would be interrupted there. That reads as the beak overlapping the head edge — which is exactly how it looks in cartoons ✓ fine. Actually no: the beak drawn on top with its flat left edge at x≈428-432 will cover the head's ink outline stroke there, so the head's outline appears broken/continuous? The beak's own ink outline includes its left edge (a vertical line across the head) → visible vertical line. To hide it, make the beak's left edge shorter and angled... 
+
+You know what — simplest robust approach: draw the beak BEHIND the whole bird silhouette. Order: tail, beak, then BIRD_D (body+neck+head) on top. The beak sticks out to the lower-right of the head; its base is covered by the head ✓ no seam visible except where the beak meets the head outline naturally (the head's ink outline crosses the beak base → looks like the beak is attached behind/under the head, which is correct for a lower mandible!). The lower mandible appearing to go behind the head is slightly off anatomically but visually reads fine (and pelican pouches do tuck). Also the pouch hanging below the head will be partially covered by the head's lower edge — the pouch is below the head anyway.
+
+Hmm, but the upper mandible should be in front of/above the head's outline at the top... With the beak behind, the head's outline cuts across the beak's base — visually: beak emerges from the head ✓ good enough. Many flat illustrations do exactly this.
+
+Decision: order = tail → beak → bird (body/neck/head) → wing+feathers (clipped) → eye → nostril. Wait, the wing should be over the body ✓ (after bird). Eye/nostril after wing ✓. And the tail: behind the body ✓ (tail first, its base covered by the body).
+
+Hmm, but the tail drawn first is behind the beak too — irrelevant, they don't overlap.
+
+Beak path (drawn behind head, so extend its base a bit into the head area, say to x 410):
+```
+M 412 200
+C 430 202 452 206 474 211
+C 482 213 486 216 486 216
+C 486 216 480 224 470 232
+C 460 242 448 248 440 240
+C 432 232 424 222 418 214
+C 416 208 414 204 412 200
+Z
+```
+Hmm, let me structure: upper edge from base (412,202) → tip (486,216). Then lower edge back: from tip → (470,234) → pouch bottom curve → (446,246) → (436,232) → base (418,214). Path:
+```
+M 412 202
+C 434 204 458 208 476 213
+L 486 216
+C 480 222 472 228 462 234
+C 452 242 442 250 430 240
+C 422 234 418 222 416 212
+C 414 206 413 204 412 202
+Z
+```
+Roughly a long beak with a pouch. The pouch dips to y≈245 near x 445 ✓ deep pouch. The upper edge from (412,202) to (476,213) is nearly straight (slight curve) ✓; tip at (486,216) — wait I have L 486 216 then a curve going back down-left: from (486,216) C to (462,234): that's the lower mandible curving back-left and down ✓, then pouch curve to (430,240), then up to base (416,212) ✓. The base edge from (416,212) back to (412,202) is nearly vertical, 10px tall, hidden behind head if head covers x≥... head right edge at y 202-212 is x ≈ 408+25 = 433 → the base at x 412-416 is INSIDE the head ✓ covered. 
+
+Also add a mandible separation line? The pouch curve already gives the lower mandible look. Skip.
+
+And the nostril: on the upper mandible at (462,210) — inside beak ✓ small fill ink opacity .55 r 1.6.
+
+Eye on head at (400,184) r 5 → check inside head circle (408,196) r26: distance sqrt(64+144)=14.4 ✓ inside.
+
+Also maybe the head circle center: from BIRD_D numbers, head spans x 382..438, y 169..222 → center (410,195) r ~26 ✓ eye (400,186) ✓.
+
+Now BIRD_D final (body+neck+head, no beak):
+```
+M 244 272
+C 234 256 226 232 238 218
+C 256 202 272 200 286 206
+C 312 200 330 210 340 222
+C 356 208 368 198 382 190
+C 390 180 404 169 420 178
+C 432 186 438 202 432 214
+C 424 222 408 228 390 232
+C 372 236 356 244 338 256
+C 320 266 298 274 278 286
+C 258 296 246 290 244 272
+Z
+```
+Access: check the right edge — from (432,214) curve to (390,232) etc. Head bottom at y 228-232 around x 390-408 ✓ roughly a circle. Good enough; slight lumpiness acceptable at this scale (the shape is ~120px, curves smooth).
+
+Hmm wait, there's a risk the head looks a big blob merged with the neck with no definition. The neck top region: from (340,222) to (382,190) — the "back of the neck" rises; the head's back at (382,190) — so the neck's back edge goes up to the head's top-back ✓ and the head's front-right is large. The junction between the neck and head is smooth (both curves) → reads as a pelican's big head ✓. Add a subtle neck fold line? A short stroke: `M 372 214 C 380 206 392 202 400 204` stroke ink 2.5 opacity .35? Skip — keep the silhouette clean, the wing and eye give enough detail.
+
+Belly shading ellipse: cy 282, rx 50, ry 14, opacity .45 fill bodyShade, clipped ✓.
+
+Now the tail: `M 252 244 C 238 248 228 258 216 272 L 232 292 C 240 276 246 262 256 252 Z` — drawn first (behind body). Body back edge around x 226-244 in that y range → tail sticks out to the left/below ✓.
+
+Everything set. Legs: hips near (330,290) and (300,286)? Body bottom at x 330: the bottom curve from (338,256) to (278,286) via (320,266),(298,274) → at x 330, y ≈ 262?? Hmm the belly curve: C 372 236 356 244 338 256 → C 320 266 298 274 278 286. At x=330 the outline y ≈ 260 (between 256 and 266)... wait that's the front belly from (338,256) going left-down to (278,286): at x 330, y ≈ 259; at x 300, y ≈ 273; at x 278, y=286. So the body's bottom edge is at y ~260-286, NOT 290. So hips at y 290 would be BELOW the body outline → legs visible from the hip downward without overlap... but the legs are drawn BEFORE the bird, so a hip at (330,290) drawn behind the body: the body covers up to its outline; the leg's top (round cap at y290, width 15 → spans y 282..298) partially covered by the body only where the body is above... The leg top would be visible below the body's bottom edge if the hip is below the body edge. So the leg appears to start at the body's belly edge ✓ actually that's exactly what we want (legs emerge from under the belly). As long as the hip point is inside the body region slightly so the round cap is tucking in. Set hips ON the belly edge: near hip (322, 262), far hip (300, 270). Then legs from (322,262) down to pedals. Distance to pedal at bottom (438,482): ~ 250px. Long legs but fine for a cartoon bird (and pelicans do have long legs). Hmm, 250px leg vs 120px body is silly. Reduce crank radius to 78? Then bottom pedal at 464, distance from hip (322,262) ≈ sqrt(116² + 202²) ≈ 233. Still long. Move hips lower? The body bottom is at 286 max at x 278; hips can't go lower than the belly edge... The pelvis region of a sitting bird is basically at the bottom of the body. So legs ~200px vs body ~120 tall. It'll read as a stork/egret-like cartoon with long legs — pelicans DO have long legs and it's a cartoon. Accept. Alternatively raise the saddle so the pelican sits higher? No, saddle is at the seat tube top fixed by the frame.
+
+Alternatively bend the legs a lot (knee far out) which shortens apparent length. The Q curve with a big bend offset (24) helps visually. Let's use bend 18-22.
+
+Fine. Hips: NEAR_HIP = {x: 322, y: 264}, FAR_HIP = {x: 298, y: 272}? Far leg slightly behind/left ✓.
+
+Hmm wait, but the legs drawn before the bird group: the bird's body covers the hip region ✓, but do the legs also overlap the wing? The wing is drawn after (in the bird group) so yes the wing covers the leg tops if they intersect — the wing spans x 298..350, y 214..290; the near leg from (322,264) going down-right — starts inside the wing region → the wing covers it ✓ fine (feathers over thigh, whatever, it's a cartoon).
+
+OK, also the far leg should be drawn slightly darker and BEHIND the near leg ✓ (order in the legs group: farOut, far, farFoot? Feet: far foot behind near foot? They're at different pedal positions; draw far foot, then far leg? Order: far leg outline, far leg, near leg outline, near leg, then feet: far foot, near foot ✓.
+
+Alright — also, the near/far differentiation: far = legShade (darker). Palettes define legShade.
+
+Now write everything. Also `TAU = Math.PI * 2`.
+
+One more consideration for `applyPedal` when refs.crank etc. might be null if build failed — guard `if (!refs) return;`.
+
+Let me write the CSS + HTML + JS fully now, carefully.
+
+HTML head/body:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelican on a Bicycle — SVG Studio</title>
+<style>...</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>Pelican on a Bicycle</h1>
+  <p class="sub">A hand-drawn SVG scene. Set the pedal speed, switch palettes, and export the artwork as a clean vector file.</p>
+</header>
+<main class="layout">
+  <section class="stage-card" aria-label="Illustration">
+    <div id="stage" class="stage">
+      <p class="fallback">This illustration is drawn with JavaScript — please enable it.</p>
+    </div>
+    <p class="caption">Vector artwork · 900 × 620 viewBox · scales to any size</p>
+  </section>
+  <aside class="panel">
+    <div class="control">
+      <button id="rideBtn" class="btn btn-primary" type="button" aria-pressed="true">Pause pedalling</button>
+    </div>
+    <div class="control">
+      <label for="speed">Pedal speed <output id="speedOut" for="speed">55%</output></label>
+      <input id="speed" type="range" min="0" max="100" step="1" value="55">
+    </div>
+    <div class="control">
+      <span class="label" id="paletteLabel">Palette</span>
+      <div class="swatches" role="group" aria-labelledby="paletteLabel" id="swatches"></div>
+    </div>
+    <div class="control row">
+      <button id="downloadBtn" class="btn" type="button">Download SVG</button>
+      <button id="copyBtn" class="btn" type="button">Copy SVG</button>
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </aside>
+</main>
+<script>...</script>
+</body>
+</html>
+```
+
+`<output for="speed">` — the `for` attribute on output should reference form controls; fine.
+
+Swatches built in JS: buttons with data-index, aria-pressed, containing `<span class="chip" style="background:linear-gradient(...)"></span>` and a `<span class="swatch-name">Daylight</span>`.
+
+CSS for .swatch: 
+```css
+.swatch{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 4px;border-radius:10px;border:1px solid var(--line);background:#202b39;color:var(--text);font:inherit;font-size:.78rem;cursor:pointer}
+.swatch[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.swatch .chip{width:100%;height:22px;border-radius:7px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.28)}
+```
+
+Now the JS in full:
+
+```js
+(() => {
+  'use strict';
+  const TAU = Math.PI * 2;
+  const VIEW_W = 900, VIEW_H = 620;
+  const GROUND_Y = 520;
+  const INK = '#2a2f3a';
+  const WHEEL_R = 74;
+  const REAR_HUB = { x: 288, y: 446 };
+  const FRONT_HUB = { x: 612, y: 446 };
+  const BB = { x: 438, y: 386 };
+  const CRANK_R = 96;
+  const CHAINRING_R = 46;
+  const COG_R = 19;
+  const SEAT_TOP = { x: 330, y: 300 };
+  const HEAD_TOP = { x: 556, y: 296 };
+  const HEAD_BOT = { x: 564, y: 362 };
+  const STEM_TOP = { x: 548, y: 254 };
+  const BAR_PATH = 'M 530 256 Q 548 242 568 254';
+  const NEAR_HIP = { x: 322, y: 264 };
+  const FAR_HIP = { x: 298, y: 272 };
+  const MAX_OMEGA = 4;         // rad/s at 100 % speed
+  const CLOUD_BASE_DRIFT = 3;  // px/s
+  const CLOUD_RIDE_DRIFT = 11;
+  const DEFAULT_SPEED = 55;
+  const BIRD_PATH = '...';
+  const WING_PATH = '...';
+  const BEAK_PATH = '...';
+  const TAIL_PATH = '...';
+  const FEATHER_A = '...'; FEATHER_B = '...';
+  ...
+})();
+```
+
+Palettes array with id, name, and colors.
+
+Helpers f, tube, tubePath, spokes, cloud.
+
+buildSVG(p) — big template. Then DOM refs, state, render, events, loop.
+
+Let me write out the spokes function:
+
+```js
+function spokesMarkup(cx, cy, rIn, rOut, count, color){
+  let out = '';
+  for (let i = 0; i < count; i++){
+    const a = (i / count) * TAU;
+    out += `<line x1="${f(cx + Math.cos(a)*rIn)}" y1="${f(cy + Math.sin(a)*rIn)}" x2="${f(cx + Math.cos(a)*rOut)}" y2="${f(cy + Math.sin(a)*rOut)}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+  }
+  return out;
+}
+```
+
+Wheel markup function:
+```js
+function wheelMarkup(hub, ids, p, withCog){
+  return `<g>
+    <circle cx="${hub.x}" cy="${hub.y}" r="${WHEEL_R}" fill="none" stroke="${INK}" stroke-width="9"/>
+    <circle cx="${hub.x}" cy="${hub.y}" r="62" fill="none" stroke="${INK}" stroke-width="2" opacity="0.45"/>
+    <g id="${ids.spokes}" transform="rotate(0 ${hub.x} ${hub.y})">${spokesMarkup(hub.x, hub.y, 9, 61, 12, p.spoke)}</g>
+    ${withCog ? `<circle cx="${hub.x}" cy="${hub.y}" r="${COG_R}" fill="${p.bike}" stroke="${INK}" stroke-width="3.5"/>` : ''}
+    <circle cx="${hub.x}" cy="${hub.y}" r="9" fill="${p.hub}" stroke="${INK}" stroke-width="3"/>
+  </g>`;
+}
+```
+Wait: spokes at rIn 9 → they start at r9 where the hub circle is (r9 fill hub) — spokes start under the hub ✓ fine (hub drawn after covers spoke ends).
+
+Hmm, spokes drawn AFTER the rim circle at 62 — they'd cross the rim circle line; spokes end at 61, rim circle at 62 (stroke 2 → 61..63) → slight overlap, fine visually.
+
+Now full buildSVG:
+
+```js
+function buildSVG(p){
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEW_W} ${VIEW_H}" width="${VIEW_W}" height="${VIEW_H}" role="img" aria-labelledby="sceneTitle sceneDesc">
+  <title id="sceneTitle">A pelican riding a bicycle</title>
+  <desc id="sceneDesc">A cartoon pelican with a long beaked pouch perched on a saddle, pedalling a city bicycle.</desc>
+  <defs>
+    <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${p.skyTop}"/><stop offset="1" stop-color="${p.skyBottom}"/>
+    </linearGradient>
+    <clipPath id="bodyClip"><path d="${BIRD_PATH}"/></clipPath>
+  </defs>
+  <rect width="${VIEW_W}" height="${VIEW_H}" fill="url(#skyGrad)"/>
+  <circle cx="772" cy="86" r="44" fill="${p.sun}" opacity="0.9"/>
+  <g fill="${p.cloud}" opacity="0.95">${CLOUDS.map(c => `<g transform="translate(${c.x} ${c.y}) scale(${c.s})"><circle cx="-40" cy="4" r="24"/><circle cx="-6" cy="-12" r="31"/><circle cx="38" cy="2" r="24"/></g>`).join('')}</g>
+  <rect x="0" y="${GROUND_Y}" width="${VIEW_W}" height="${VIEW_H - GROUND_Y}" fill="${p.ground}"/>
+  <line x1="0" y1="${GROUND_Y}" x2="${VIEW_W}" y2="${GROUND_Y}" stroke="${p.groundDark}" stroke-width="3"/>
+  <ellipse cx="470" cy="${GROUND_Y + 6}" rx="235" ry="11" fill="${p.shadow}" opacity="0.45"/>
+  ${wheelMarkup(REAR_HUB, {spokes:'spokesRear'}, p, true)}
+  ${wheelMarkup(FRONT_HUB, {spokes:'spokesFront'}, p, false)}
+  ${tube(REAR_HUB.x, REAR_HUB.y, BB.x, BB.y, p.bike)}
+  ${tube(REAR_HUB.x, REAR_HUB.y, SEAT_TOP.x, SEAT_TOP.y, p.bike)}
+  ${tube(BB.x, BB.y, SEAT_TOP.x, SEAT_TOP.y, p.bike)}
+  ${tube(BB.x, BB.y, HEAD_BOT.x, HEAD_BOT.y, p.bike)}
+  ${tube(SEAT_TOP.x, SEAT_TOP.y, HEAD_TOP.x, HEAD_TOP.y, p.bike)}
+  ${tube(HEAD_BOT.x, HEAD_BOT.y, FRONT_HUB.x, FRONT_HUB.y, p.bike)}
+  ${tube(HEAD_TOP.x, HEAD_TOP.y, STEM_TOP.x, STEM_TOP.y, p.bike)}
+  ${tubePath(BAR_PATH, p.bike, 9, 14)}
+  <line x1="${BB.x}" y1="${BB.y - CHAINRING_R}" x2="${REAR_HUB.x}" y2="${REAR_HUB.y - COG_R}" stroke="${p.chain}" stroke-width="3.5"/>
+  <line x1="${BB.x}" y1="${BB.y + CHAINRING_R}" x2="${REAR_HUB.x}" y2="${REAR_HUB.y + COG_R}" stroke="${p.chain}" stroke-width="3.5"/>
+  <circle cx="${BB.x}" cy="${BB.y}" r="${CHAINRING_R}" fill="${p.bike}" stroke="${INK}" stroke-width="5"/>
+  <circle cx="${BB.x}" cy="${BB.y}" r="32" fill="none" stroke="${INK}" stroke-width="3" opacity="0.3"/>
+  <g transform="rotate(0 ${BB.x} ${BB.y})">
+    ${tubePath(`M ${BB.x - CRANK_R} ${BB.y} L ${BB.x} ${BB.y}`, p.bikeShade, 7, 13)}
+    <rect x="${BB.x - CRANK_R - 10}" y="${BB.y - 5}" width="20" height="10" rx="5" fill="${p.bikeShade}" stroke="${INK}" stroke-width="3"/>
+    ${tubePath(`M ${BB.x} ${BB.y} L ${BB.x + CRANK_R} ${BB.y}`, p.bike, 8, 13)}
+    <rect x="${BB.x + CRANK_R - 10}" y="${BB.y - 5}" width="20" height="10" rx="5" fill="${p.bikeAccent}" stroke="${INK}" stroke-width="3"/>
+  </g>
+  <g id="legs">
+    <path id="legFarOut" fill="none" stroke="${INK}" stroke-width="19" stroke-linecap="round"/>
+    <path id="legFar" fill="none" stroke="${p.legShade}" stroke-width="15" stroke-linecap="round"/>
+    <path id="legNearOut" fill="none" stroke="${INK}" stroke-width="19" stroke-linecap="round"/>
+    <path id="legNear" fill="none" stroke="${p.leg}" stroke-width="15" stroke-linecap="round"/>
+    <ellipse id="footFar" rx="10" ry="7" fill="${p.legShade}" stroke="${INK}" stroke-width="3"/>
+    <ellipse id="footNear" rx="10.5" ry="7.5" fill="${p.leg}" stroke="${INK}" stroke-width="3"/>
+  </g>
+  <g id="pelican">
+    <path d="${TAIL_PATH}" fill="${p.bodyShade}" stroke="${INK}" stroke-width="5" stroke-linejoin="round"/>
+    <path d="${BEAK_PATH}" fill="${p.beak}" stroke="${INK}" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="${BIRD_PATH}" fill="${p.body}" stroke="${INK}" stroke-width="6" stroke-linejoin="round"/>
+    <g clip-path="url(#bodyClip)">
+      <ellipse cx="296" cy="282" rx="50" ry="14" fill="${p.bodyShade}" opacity="0.45"/>
+      <path d="${WING_PATH}" fill="${p.wing}" stroke="${INK}" stroke-width="5" stroke-linejoin="round"/>
+      <path d="${FEATHER_A}" fill="none" stroke="${INK}" stroke-width="3" opacity="0.35"/>
+      <path d="${FEATHER_B}" fill="none" stroke="${INK}" stroke-width="3" opacity="0.35"/>
+    </g>
+    <circle cx="400" cy="186" r="5" fill="${INK}"/>
+    <circle cx="401.6" cy="184.4" r="1.6" fill="#ffffff"/>
+    <ellipse cx="462" cy="210" rx="1.9" ry="1.3" fill="${INK}" opacity="0.55"/>
+  </g>
+</svg>`;
+}
+```
+Note: tail filled with bodyShade — hmm tail feathers darker ✓ fine.
+
+Wait: `clip-path="url(#bodyClip)"` — the clip path uses BIRD_PATH ✓.
+
+Also the wing stroke drawn inside a clip: where the wing touches the body edge, its stroke gets clipped — fine.
+
+Note the eye glint white on dark ink ✓.
+
+Also, `<g id="legs">` — but the legs' `d` attributes are empty initially; applyPedal fills them right after render ✓.
+
+Issue: the near/far leg outline strokes (19) vs fill (15) → 4px outline total (2 each side) ✓ consistent with tube strokes (19/15? I used tubePath default inner 8 outer 15 → 3.5 each side). Legs 19/15 → 2 each side. Slightly thinner outline; fine, or make legs 18/13. Keep 19/15.
+
+Also the pelvis: NEAR_HIP (322,264) — is that inside the body? The belly curve at x322: between (338,256) and (298,274)... the curve C 320 266 298 274 278 286 from (338,256): at t small, point ≈ (338 - ... ) roughly x320 → y ≈ 260. So hip at (322,264) is just below the outline → the round cap (r 9.5 for stroke 19) spans y 254..274 → partially behind the body ✓ good, emerges from the belly.
+
+Now `tube()` and `tubePath()`:
+```js
+function tubePath(d, color, inner, outer){
+  return `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${outer}" stroke-linecap="round" stroke-linejoin="round"/>` +
+         `<path d="${d}" fill="none" stroke="${color}" stroke-width="${inner}" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function tube(x1,y1,x2,y2,color){ return tubePath(`M ${x1} ${y1} L ${x2} ${y2}`, color, 8, 15); }
+```
+
+Saddle markup — insert after the seat tube? Saddle should be drawn... it's at the seat top; the bird covers part of it. Draw saddle right after the seat-tube line so tubes overlap it? Order matters little; put the saddle after the frame tubes, before the chain. Actually the saddle should be over the seat tube's top end. Put it right after `tube(BB...SEAT_TOP...)`? Simpler: include it in the frame group after the top tube. I'll place it after the bar/chain lines, before chainring — arbitrary; put it right after the seat tube line for tidiness. Eh — I'll put it just before the chain lines.
+
+Saddle:
+```js
+const saddle = `<g transform="rotate(-4 ${SEAT_TOP.x} ${SEAT_TOP.y})"><rect x="${SEAT_TOP.x - 42}" y="${SEAT_TOP.y - 8}" width="84" height="15" rx="7.5" fill="${p.bikeAccent}" stroke="${INK}" stroke-width="4"/></g>`;
+```
+y -8..+7 around 300 → 292..307 ✓ body bottom ~286-290 → slight overlap of body over saddle top ✓ looks like sitting.
+
+Hmm, the saddle is drawn BEFORE the legs and bird ✓ (bird covers it).
+
+Wait, order in my template: wheels, tubes, bar, chain lines, chainring, crank group, legs, pelican. Saddle must go with the frame — put it right after the top tube line. Let me insert `${saddle}` after `${tube(SEAT_TOP...HEAD_TOP...)}`.
+
+Clouds constant:
+```js
+const CLOUDS = [
+  { x: 150, y: 118, s: 1 },
+  { x: 372, y: 70, s: 0.72 },
+  { x: 648, y: 152, s: 0.85 },
+  { x: 846, y: 96, s: 0.6 }
+];
+```
+Drift: x decreases; wrap when x < -170 → x = VIEW_W + 170 + i*55? With 4 clouds and staggered wrap, fine: `c.x = VIEW_W + 170 + idx * 70`.
+
+Hmm, clouds drifting left at ~10px/s → crossing 900px takes ~90s ✓ calm.
+
+Now the app state & wiring:
+
+```js
+const stage = document.getElementById('stage');
+const statusEl = document.getElementById('status');
+const rideBtn = document.getElementById('rideBtn');
+const speedInput = document.getElementById('speed');
+const speedOut = document.getElementById('speedOut');
+const swatchBox = document.getElementById('swatches');
+const downloadBtn = document.getElementById('downloadBtn');
+const copyBtn = document.getElementById('copyBtn');
+
+const state = { paletteIndex: 0, speed: DEFAULT_SPEED, riding: true, angle: 0 };
+let refs = null;
+let lastTs = 0;
+const motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+let reducedMotion = !!(motionQuery && motionQuery.matches);
+```
+
+buildSwatches: create buttons for each palette; click → select.
+
+```js
+function buildSwatches(){
+  swatchBox.innerHTML = '';
+  PALETTES.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.dataset.index = String(i);
+    b.setAttribute('aria-pressed', String(i === state.paletteIndex));
+    b.innerHTML = `<span class="chip" style="background:linear-gradient(135deg, ${p.skyTop}, ${p.beak})"></span><span>${p.name}</span>`;
+    b.addEventListener('click', () => selectPalette(i));
+    swatchBox.appendChild(b);
+  });
+}
+function selectPalette(i){
+  if (!Number.isInteger(i) || i < 0 || i >= PALETTES.length) return;
+  state.paletteIndex = i;
+  render();
+  setStatus(`Palette: ${PALETTES[i].name}.`);
+}
+```
+Hmm `b.innerHTML` with palette name — names are ours, safe.
+
+selectPalette guard: if same index, still re-render? Clicking the active swatch re-renders unnecessarily but harmless; better: if (i === state.paletteIndex) { setStatus(...); return; } — avoids pointless rebuild. But then the aria-pressed update... it's already correct. Add the early return with status "Palette: X (already active)"? Just return silently? Visible feedback is required for state changes — no change, so no feedback needed. I'll early-return.
+
+render():
+```js
+function render(){
+  stage.innerHTML = buildSVG(PALETTES[state.paletteIndex]);
+  refs = {
+    svg: stage.querySelector('svg'),
+    spokesRear: stage.querySelector('#spokesRear'),
+    spokesFront: stage.querySelector('#spokesFront'),
+    crank: stage.querySelector('#crank')  // need id on crank group
+    ...
+  };
+}
+```
+I must add id="crank" to the crank group in buildSVG ✓ (currently `<g transform="rotate(0 ...)">` — add id="crank").
+
+Also need ids: legFarOut, legFar, legNearOut, legNear, footFar, footNear ✓ present.
+
+cacheRefs:
+```js
+function cacheRefs(){
+  refs = {
+    svg: stage.querySelector('svg'),
+    spokesRear: stage.querySelector('#spokesRear'),
+    spokesFront: stage.querySelector('#spokesFront'),
+    crank: stage.querySelector('#crank'),
+    legFarOut: ..., legFar: ..., legNearOut: ..., legNear: ...,
+    footFar: ..., footNear: ...,
+    clouds: CLOUDS.map((c, i) => ({ el: stage.querySelectorAll('#clouds > g')[i], x: c.x, y: c.y, s: c.s }))
+  };
+}
+```
+`stage.querySelectorAll('#clouds > g')` returns 4 in order ✓ matching CLOUDS order ✓ (map builds in order). But guard: if count mismatch (shouldn't), map could set el undefined → drift would throw. Add a filter: `.filter(Boolean)`? If a cloud el is missing, `{el: undefined}` → drift crashes. Safer: build array by querying all and pairing with CLOUDS by index only if lengths match:
+```js
+const cloudEls = Array.from(stage.querySelectorAll('#clouds > g'));
+refs.clouds = CLOUDS.map((c, i) => ({ el: cloudEls[i], x: c.x, y: c.y, s: c.s })).filter(c => c.el);
+```
+Good.
+
+applyPedal(angle) with null guards:
+```js
+function applyPedal(angle){
+  if (!refs) return;
+  const deg = (angle * 180) / Math.PI;
+  const rot = `rotate(${f(deg)}`;
+  if (refs.spokesRear) refs.spokesRear.setAttribute('transform', `${rot} ${REAR_HUB.x} ${REAR_HUB.y})`);
+  ...
+}
+```
+Simplify: build strings inline with guards. Also crank rotate uses -deg.
+
+```js
+function pedalPos(angle){
+  return { x: BB.x + CRANK_R * Math.cos(angle), y: BB.y - CRANK_R * Math.sin(angle) };
+}
+function legPath(hip, foot){
+  const dx = foot.x - hip.x, dy = foot.y - hip.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const bend = Math.min(22, len * 0.22);
+  const kx = (hip.x + foot.x) / 2 + (dy / len) * bend;
+  const ky = (hip.y + foot.y) / 2 - (dx / len) * bend;
+  return `M ${f(hip.x)} ${f(hip.y)} Q ${f(kx)} ${f(ky)} ${f(foot.x)} ${f(foot.y)}`;
+}
+function setLeg(outEl, colEl, footEl, hip, foot){
+  const d = legPath(hip, foot);
+  outEl.setAttribute('d', d); colEl.setAttribute('d', d);
+  footEl.setAttribute('cx', f(foot.x)); footEl.setAttribute('cy', f(foot.y));
+}
+```
+Perpendicular: (dy/len, -dx/len): for a leg going down-right (dx>0, dy>0): knee offset (+dy, -dx) = right and up → knee forward-up… For a bird's leg the "knee" bends backward (like a human knee points forward; a bird's leg bends the same way at the knee joint, with the joint forward). Knee bulging forward-right ✓ good.
+
+applyPedal:
+```js
+function applyPedal(angle){
+  if (!refs) return;
+  const deg = (angle * 180) / Math.PI;
+  if (refs.spokesRear) refs.spokesRear.setAttribute('transform', `rotate(${f(deg)} ${REAR_HUB.x} ${REAR_HUB.y})`);
+  if (refs.spokesFront) refs.spokesFront.setAttribute('transform', `rotate(${f(deg)} ${FRONT_HUB.x} ${FRONT_HUB.y})`);
+  if (refs.crank) refs.crank.setAttribute('transform', `rotate(${f(-deg)} ${BB.x} ${BB.y})`);
+  setLeg(refs.legFarOut, refs.legFar, refs.footFar, FAR_HIP, pedalPos(angle + Math.PI));
+  setLeg(refs.legNearOut, refs.legNear, refs.footNear, NEAR_HIP, pedalPos(angle));
+}
+```
+
+driftClouds(dt):
+```js
+function driftClouds(dt){
+  const speed = CLOUD_BASE_DRIFT + (state.riding ? CLOUD_RIDE_DRIFT + state.speed * 0.05 : 0);
+  refs.clouds.forEach((c, i) => {
+    c.x -= speed * dt;
+    if (c.x < -180) c.x = VIEW_W + 180 + i * 70;
+    c.el.setAttribute('transform', `translate(${f(c.x)} ${c.y}) scale(${c.s})`);
+  });
+}
+```
+
+frame loop:
+```js
+function frame(ts){
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min(Math.max((ts - lastTs) / 1000, 0), 0.05);
+  lastTs = ts;
+  if (refs){
+    if (!reducedMotion){
+      driftClouds(dt);
+      const omega = state.riding ? (state.speed / 100) * MAX_OMEGA : 0;
+      if (omega > 0){
+        state.angle = (state.angle + omega * dt) % TAU;
+        applyPedal(state.angle);
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+}
+```
+requestAnimationFrame(frame) at the end always ✓; start after initial render.
+
+Note: if reducedMotion, clouds freeze in place ✓ (never drift). And if reducedMotion becomes true mid-session, clouds stop ✓. If it becomes false again, clouds resume from where they were ✓.
+
+Events:
+```js
+rideBtn.addEventListener('click', () => {
+  if (reducedMotion){ setStatus('Reduced-motion preference is on — animation stays off.', 'warn'); return; }
+  state.riding = !state.riding;
+  syncControls();
+  setStatus(state.riding ? 'Pedalling.' : 'Paused — press play to pedal again.');
+});
+```
+Hmm, if reducedMotion, should the button be disabled? Better: keep it enabled but explain? Simpler: disable the button when reducedMotion (visible state) and status explains. But then the user can't start... which is correct for reduced motion? Respect the preference but the user might want to override. I'll keep the button enabled and just let it work (user explicitly asked). Actually respecting reduced motion silently overriding user action is worse. Decision: on load, if reducedMotion → state.riding = false + status note; the button stays enabled and if the user clicks it, they can force animation (explicit user intent). That's the standard approach. So remove the guard in the click handler; just toggle. And in the frame loop, `if (!reducedMotion)` would block the forced animation! So: allow animation when riding is explicitly true... but then reduced-motion users who never clicked get animation? No: initial riding=false when reducedMotion, and the loop condition: `if (state.riding && !reducedMotion || forced)` — getting complicated. Simplify: the loop animates when `state.riding && !reducedMotion`, except when the user has explicitly toggled Ride on after a reduced-motion start, in which case set reducedMotion-ish flag? 
+
+Cleaner: track `state.riding` and `state.automation` — meh. Simplest defensible: if reduced-motion is preferred, start paused; the Ride button, when clicked, sets riding=true and we set a flag `state.userOverride = true`, and the loop animates if `state.riding && (state.userOverride || !reducedMotion)`. Hmm, but if the user pauses, animation stops anyway. Honestly the simplest: on load if reducedMotion → riding=false, status note, and the loop animates whenever `state.riding && !reducedMotion`... then the user can never start. That's bad UX.
+
+Alternative simplest: ignore prefers-reduced-motion for the ride toggle but use it only for the ambient cloud drift: `if (!reducedMotion) driftClouds(dt)`. And the initial state riding = !reducedMotion (so reduced-motion users start paused), but if they click Ride, it animates (explicit intent). That's clean and defensible: ambient motion respects the preference; user-triggered motion is allowed. And clouds: also stop drifting when the user pauses? Clouds drifting is ambient; reduced motion stops it; otherwise clouds always drift gently regardless of riding. Fine.
+
+So loop:
+```js
+if (refs){
+  if (!reducedMotion) driftClouds(dt);
+  const omega = state.riding ? (state.speed/100)*MAX_OMEGA : 0;
+  if (omega > 0){ state.angle = (state.angle + omega*dt) % TAU; applyPedal(state.angle); }
+}
+```
+And on media query change: `reducedMotion = e.matches` and if it becomes true, note that nothing else breaks (clouds just stop). Also update status? Optional; skip to avoid noise. Actually a one-time status when it toggles on: setStatus('Reduced-motion preference detected — ambient motion paused.', 'warn')? Eh, could be nice. I'll add it guarded by `typeof motionQuery.addEventListener === 'function'`. Keep it minimal: just update the flag. Hmm, "visible feedback on state changes" — the button state covers ride changes. I'll skip the media-change listener entirely? If reducedMotion is captured once, and the user changes their OS setting mid-session, we won't adapt — acceptable but slightly sloppy. Add the listener; it's 4 lines and handles an edge case:
+
+```js
+if (motionQuery && typeof motionQuery.addEventListener === 'function'){
+  motionQuery.addEventListener('change', (e) => { reducedMotion = !!e.matches; });
+}
+```
+Note: `e` may be undefined for old addListener style; guarded by addEventListener check ✓. And reducedMotion is a `let` ✓.
+
+syncControls():
+```js
+function syncControls(){
+  const riding = state.riding;
+  rideBtn.textContent = riding ? 'Pause pedalling' : 'Start pedalling';
+  rideBtn.setAttribute('aria-pressed', String(riding));
+  speedInput.value = String(state.speed);
+  speedOut.textContent = `${state.speed}%`;
+  Array.from(swatchBox.children).forEach((b, i) => b.setAttribute('aria-pressed', String(i === state.paletteIndex)));
+}
+```
+swatchBox children order matches PALETTES ✓.
+
+speed input handler:
+```js
+speedInput.addEventListener('input', () => {
+  const v = Number(speedInput.value);
+  state.speed = Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : 0;
+  speedOut.textContent = `${state.speed}%`;
+});
+```
+Note: `Number('')` is 0; range input always gives a number ✓.
+
+setStatus(msg, kind='info'): statusEl.textContent = msg; statusEl.dataset.kind = kind.
+
+Init:
+```js
+buildSwatches();
+if (reducedMotion){ state.riding = false; setStatus('Reduced-motion preference on — animation starts paused.'); }
+syncControls();
+render();               // render() should also syncControls? it re-queries; swatch pressed state unchanged. Call syncControls in render for simplicity? render rebuilds SVG only; swatches untouched. Keep syncControls outside.
+requestAnimationFrame(frame);
+```
+Careful: render() sets innerHTML which destroys the fallback <p> ✓ intended.
+
+Also `applyPedal` initial call inside render (after cacheRefs) so legs aren't blank ✓.
+
+Also handle window resize: nothing needed (SVG scales). But maybe the cloud drift is irrelevant. ✓ No resize handler needed — but the constraint mentions handling resize so the page never breaks: CSS handles it (svg width:100%, height:auto; grid collapses at 900px). Also long status messages wrap ✓.
+
+Edge: repeated clicks on download → each creates a blob + revokes after 5s ✓; createObjectURL may not exist → try/catch ✓. Also guard `if (!markup)`.
+
+Edge: clicking Download before render? render runs at init ✓.
+
+Also, `serializeToString` on the svg element: includes the xmlns attribute since we set it in the markup ✓ (we set xmlns="${SVG_NS}" ✓).
+
+Now, `f()`:
+```js
+const f = (n) => Math.round(n * 10) / 10;
+```
+For transform rotate values with 1 decimal ✓. For coordinates ✓.
+
+One more: `spokesMarkup` uses f() ✓.
+
+Also `tube()` numbers: integers ✓ but f isn't needed.
+
+Let me double check the crank group transform in markup: `<g id="crank" transform="rotate(0 ${BB.x} ${BB.y})">` ✓ and JS sets `rotate(${f(-deg)} ${BB.x} ${BB.y})`.
+
+Hmm: rotation direction — in SVG, rotate(a) with positive a rotates clockwise (since y is down). A point at (BB.x + R, BB.y) rotated by -deg → (BB.x + R cos(-deg)... ) let me verify: rotation matrix for angle a (SVG, clockwise positive visually because y down, but mathematically it's the standard matrix [cos, -sin; sin, cos] applied in a y-down coordinate system → appears clockwise). Point (R,0) → (R cos a, R sin a). With a = -deg: (R cos deg, -R sin deg) → y = BB.y - R sin deg ✓ matches pedalPos(angle) with deg = angle in degrees. ✓ 
+
+And spokes rotate by +deg: a spoke initially pointing right (from hub toward +x at r61) moves to (61 cos deg, 61 sin deg) → for deg>0 goes down (y increases) = clockwise ✓ whatever, it's rotation.
+
+Both wheels rotate the same direction ✓ consistent with forward motion (bike faces right, so wheels rotate clockwise ✓ = positive deg ✓ correct!). And the crank: pedal at angle θ measured with y-up convention... pedalPos uses -sin → for increasing angle, pedal moves from right → up → left → down = counterclockwise on screen? At angle 0: (BB.x + 96, BB.y). At angle π/2: (BB.x, BB.y - 96) = above → moving from right to top = counterclockwise on screen. But the crank group rotates by -deg → clockwise for positive deg... wait: group rotate(-deg) with deg = angle*180/π: at angle π/2, deg=90, rotate(-90) applied to point (R,0) → (R cos(-90), R sin(-90)) = (0, -R) → above ✓ matches pedalPos(π/2) = (BB.x, BB.y - 96) ✓. So both consistent ✓. Riding forward = wheels clockwise, crank... the crank appears counterclockwise while wheels go clockwise — that's correct! Bicycle cranks rotate the opposite direction from... no wait. On a bicycle moving forward, the wheels rotate clockwise (viewed from the right side, i.e., from the right side of the bike in a side view). The crank/chainring also rotates clockwise (same direction as wheels, driven by the chain). Hmm: viewed from the right side of a bike moving right, the wheels spin clockwise. The pedals/crank also spin clockwise. So my crank rotating counterclockwise is wrong!
+
+But it doesn't matter visually much... still, let's be correct: make the pedal position (BB.x + R cos θ, BB.y + R sin θ) with θ increasing → clockwise on screen ✓ and crank group rotate(deg) ✓. Let me redefine: pedalPos(angle) = { x: BB.x + CRANK_R*cos(angle), y: BB.y + CRANK_R*sin(angle) } and crank transform rotate(deg) (not -deg). Then at angle 0 the pedal is at the right (3 o'clock), at π/2 at the bottom (6 o'clock, y+), going right→down→left→up = clockwise ✓ same as wheels ✓. 
+
+And the far pedal = angle + π ✓.
+
+Now legs: near leg to pedal at (BB.x + 96cos, BB.y + 96 sin) — at angle π/2 (bottom) the near pedal is at the bottom (438, 482) ✓ same as before.
+
+OK adjust: pedalPos uses +sin; crank rotate(f(deg)).
+
+Double-check crank arm markup: near arm drawn from BB to (BB.x + CRANK_R, BB.y) pointing right (3 o'clock) and rotate(deg) moves it to angle deg ✓ = pedalPos(deg) ✓.
+
+Great.
+
+Now, one more check on the pelican's feet vs pedals: pedal at bottom (438,482), foot ellipse r 10.5 → the foot sits at the pedal ✓ drawn after the pedals ✓.
+
+Also: does the near leg (from hip 322,264 to pedal) cross the frame tubes? Sure, legs in front of the down tube — normal enough.
+
+I think we're good. Let me also double check `tube(HEAD_BOT.x, HEAD_BOT.y, FRONT_HUB.x, FRONT_HUB.y, p.bike)` — the fork from head tube bottom to front hub ✓.
+
+Let me write out the final BIRD_PATH with exact numbers (as strings):
+
+BIRD_PATH = 'M 244 272 C 234 256 226 232 238 218 C 256 202 272 200 286 206 C 312 200 330 210 340 222 C 356 208 368 198 382 190 C 390 180 404 169 420 178 C 432 186 438 202 432 214 C 424 222 408 228 390 232 C 372 236 356 244 338 256 C 320 266 298 274 278 286 C 258 296 246 290 244 272 Z'
+
+Hmm the last curve: from (278,286) C 258 296 246 290 244 272 → control points (258,296),(246,290) → ends at start ✓.
+
+TAIL_PATH = 'M 252 244 C 238 248 228 258 216 272 L 232 292 C 240 276 246 262 256 252 Z'
+BEAK_PATH = 'M 412 202 C 434 204 458 208 476 213 L 486 216 C 480 222 472 228 462 234 C 452 242 442 250 430 240 C 422 234 418 222 416 212 C 414 206 413 204 412 202 Z'
+WING_PATH = 'M 350 214 C 326 222 306 242 298 266 C 290 284 306 292 326 290 C 326 270 328 244 348 220 Z'
+FEATHER_A = 'M 316 246 C 304 256 302 272 314 284'
+FEATHER_B = 'M 332 234 C 322 244 320 260 330 272'
+
+Check the BEAK: starts at (412,202) — inside the head (head spans to x≈432 at that height) ✓ hidden base. Tip at (486,216) ✓. Lower edge back to (462,234), pouch to (430,240)... wait 'C 452 242 442 250 430 240' from (462,234) → ends (430,240); then 'C 422 234 418 222 416 212' → ends (416,212) ✓ base. Then closing curve back to (412,202) ✓. The pouch bottom around y≈242-246 ✓ deep enough.
+
+Hmm, the beak's upper edge from (412,202) C 434 204 458 208 476 213 then L to (486,216) — fine, ~14px thick beak? Upper edge y≈204-216 at x 430-486; lower edge from (486,216) back to (462,234): thickness at x 470 ≈ 20px?? That's a chunky beak but pelicans have big beaks ✓ (with the pouch below). OK.
+
+Eye at (400,186): head center ~(410,195) r≈26 → the eye sits up-left of center, toward the front-top ✓ good for a right-facing bird.
+
+Nostril at (462,210) — is that inside the beak? Upper edge near x 462 ≈ y 212; lower edge near x 462 ≈ y 230 → (462,210) is inside ✓ near the top edge, good for a nostril.
+
+Alright. Also the tail y range 244..292 vs body back edge — the body's back edge at y 244 is around x≈233? The tail spans x 216..256 → sticks out ~17px ✓ visible.
+
+Now let me assemble everything and write the HTML. Also add `<meta name="color-scheme" content="dark">`? The page is dark; the stage card is light. Fine without.
+
+One thing: `body` padding and `.layout` max-width 1240 centered ✓.
+
+Write the final CSS:
+
+```css
+:root{
+  --bg:#0e131a;
+  --panel:#18212c;
+  --panel-2:#202b39;
+  --line:#2a3644;
+  --text:#e9eff6;
+  --muted:#93a3b5;
+  --accent:#ffb703;
+  --accent-ink:#2a1e00;
+  --warn:#ffb703;
+  --ok:#6ee7a8;
+  --radius:16px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}  /* no, avoid; use min-height on body */
+body{
+  margin:0;
+  min-height:100vh;
+  padding:clamp(16px,3vw,40px);
+  color:var(--text);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:
+    radial-gradient(900px 500px at 12% -8%, #1e2c3c 0%, rgba(30,44,60,0) 62%),
+    radial-gradient(700px 420px at 92% 4%, #2a2130 0%, rgba(42,33,48,0) 60%),
+    linear-gradient(165deg,#0e131a,#111823 55%,#0c1117);
+  background-attachment:fixed;
+}
+.page-head{max-width:1240px;margin:0 auto 20px}
+h1{margin:0 0 6px;font-size:clamp(1.5rem,3.4vw,2.15rem);letter-spacing:-0.02em}
+.sub{margin:0;color:var(--muted);line-height:1.55;max-width:64ch;font-size:.95rem}
+.layout{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
+@media (max-width:900px){ .layout{grid-template-columns:minmax(0,1fr)} }
+.stage-card{background:#f7fafc;border-radius:var(--radius);padding:14px;box-shadow:0 24px 48px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.06)}
+.stage{display:block}
+.stage svg{display:block;width:100%;height:auto;border-radius:10px}
+.fallback{margin:0;padding:28px 16px;text-align:center;color:var(--muted);font-size:.9rem}
+.caption{margin:10px 2px 0;color:var(--muted);font-size:.76rem;letter-spacing:.02em}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;gap:16px;box-shadow:0 24px 48px -34px rgba(0,0,0,.9)}
+.control{display:flex;flex-direction:column;gap:8px}
+.control .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+output{color:var(--accent);font-variant-numeric:tabular-nums;font-size:.8rem;letter-spacing:0}
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+.btn{appearance:none;font:inherit;font-size:.88rem;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;transition:background .15s ease,border-color .15s ease,transform .06s ease}
+.btn:hover{background:#26333f;border-color:#37475a}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn-primary{background:var(--accent);border-color:transparent;color:var(--accent-ink);font-weight:650}
+.btn-primary:hover{background:#ffc43d;border-color:transparent}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.swatches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.swatch{appearance:none;font:inherit;font-size:.74rem;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease}
+.swatch:hover{border-color:#37475a}
+.swatch[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.swatch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chip{width:100%;height:22px;border-radius:7px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.3)}
+.status{margin:0;min-height:1.2em;font-size:.82rem;color:var(--muted);line-height:1.4}
+.status[data-kind="warn"]{color:var(--warn)}
+.status[data-kind="ok"]{color:var(--ok)}
+```
+
+`.swatch .chip` width 100% inside a grid column ✓.
+
+Note `.stage svg` selector also matches... fine.
+
+Also `input[type=range]` styling: accent-color works in modern browsers ✓, plus default track. Fine.
+
+Now the JS. Let me write it in full, carefully, in order:
+
+```js
+(function(){
+  'use strict';
+
+  /* ---------- constants ---------- */
+  const TAU = Math.PI * 2;
+  const VIEW_W = 900;
+  const VIEW_H = 620;
+  const GROUND_Y = 520;
+  const INK = '#2a2f3a';
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  const WHEEL_R = 74;
+  const REAR_HUB = { x: 288, y: 446 };
+  const FRONT_HUB = { x: 612, y: 446 };
+  const BB = { x: 438, y: 386 };
+  const CRANK_R = 96;
+  const CHAINRING_R = 46;
+  const COG_R = 19;
+  const SEAT_TOP = { x: 330, y: 300 };
+  const HEAD_TOP = { x: 556, y: 296 };
+  const HEAD_BOT = { x: 564, y: 362 };
+  const STEM_TOP = { x: 548, y: 254 };
+  const BAR_PATH = 'M 530 256 Q 548 242 568 254';
+  const NEAR_HIP = { x: 322, y: 264 };
+  const FAR_HIP = { x: 298, y: 272 };
+
+  const MAX_OMEGA = 4;
+  const DEFAULT_SPEED = 55;
+  const CLOUD_BASE_DRIFT = 3;
+  const CLOUD_RIDE_DRIFT = 11;
+  const CLOUD_MIN_X = -180;
+
+  const BIRD_PATH = '...';
+  const BEAK_PATH = '...';
+  const TAIL_PATH = '...';
+  const WING_PATH = '...';
+  const FEATHER_A = '...';
+  const FEATHER_B = '...';
+  const SPOKE_COUNT = 12;
+
+  const CLOUDS = [...];
+
+  const PALETTES = [ ... ];
+  ...
+})();
+```
+
+PALETTES with ids: daylight, sunset, mint.
+
+Let me finalize palette hexes:
+
+daylight: skyTop '#cfe9ff', skyBottom '#f3faff', sun '#ffe9a8', cloud '#ffffff', ground '#d3e8c6', groundDark '#a9cf95', shadow '#8fbb7d', body '#ffffff', bodyShade '#e2ecf3', wing '#dbe7f0', beak '#f7a072', leg '#f0a878', legShade '#d98a63', bike '#3d8fd1', bikeShade '#2c6ba3', bikeAccent '#ffd166', spoke '#a9c8e0', hub '#2b3a4a', chain '#7c8b9b'
+
+sunset: skyTop '#ffcf9e', skyBottom '#ffe9c7', sun '#fff0b3', cloud '#fff4e6', ground '#e0b183', groundDark '#c68f66', shadow '#a9744f', body '#fff6ec', bodyShade '#e8d3c0', wing '#f0dccb', beak '#e2603f', leg '#e08a5f', legShade '#b86a48', bike '#c94f6d', bikeShade '#a03a56', bikeAccent '#ffd166', spoke '#e8b7c4', hub '#3a2b33', chain '#8d7286'
+
+mint: skyTop '#a8e6cf', skyBottom '#e8f7f1', sun '#fff3b0', cloud '#ffffff', ground '#82ca9e', groundDark '#62a87f', shadow '#4f8a67', body '#ffffff', bodyShade '#dff0e6', wing '#cfe8dd', beak '#ff8a5b', leg '#f2a07a', legShade '#cf7f5c', bike '#1f7a6c', bikeShade '#16604f', bikeAccent '#ffd166', spoke '#9ed8c9', hub '#12332e', chain '#5b8f83'
+
+hub colors are dark ✓.
+
+Now writing the whole file. Also, `stage.querySelector('svg')` — after innerHTML, `stage.querySelector` works ✓.
+
+Also: `PALETTES.forEach` swatch inline style with gradient using the palette colors — includes a comma inside `linear-gradient(135deg, #cfe9ff, #f7a072)` inside a style attribute set via innerHTML — the value contains no quotes issues ✓ (we build the string ourselves).
+
+One risk: `b.innerHTML = ...` with a template string containing `${}` — fine.
+
+Let me now also double check `render()` order: stage.innerHTML = buildSVG(...) → cacheRefs() → applyPedal(state.angle) → (syncControls not needed).
+
+Also I realize: on palette change the SVG is rebuilt, so `refs.clouds` positions reset to the initial CLOUDS x/y (drift state lost) — acceptable (clouds snap back). Slight visual jump; fine, or preserve drift by storing current x in a variable. Meh — could keep a map of cloud index → x in a module-level array that survives re-render: `let cloudX = CLOUDS.map(c => c.x);` and cacheRefs uses cloudX[i] as starting x, driftClouds updates cloudX. Nice touch, cheap, avoids the jump. Do it: 
+
+```js
+let cloudPositions = CLOUDS.map(c => c.x);
+```
+cacheRefs: `clouds: CLOUDS.map((c,i) => ({el: cloudEls[i], x: cloudPositions[i], y: c.y, s: c.s}))`.
+driftClouds updates c.x and cloudPositions[i]... I'd need the index: `refs.clouds.forEach((c,i) => { c.x -= ...; cloudPositions[i] = ...})` — but the array indices match the CLOUDS indices only if no filtering happened (filter could shift). Use the filter-free approach: if cloudEls.length !== CLOUDS.length, just skip cloud drift entirely (defensive):
+```js
+const cloudEls = Array.from(stage.querySelectorAll('#clouds > g'));
+refs.clouds = cloudEls.length === CLOUDS.length ? CLOUDS.map((c,i)=>({el:cloudEls[i], x:cloudPositions[i], y:c.y, s:c.s})) : [];
+```
+✓ clean.
+
+Now, writing everything for real. Also the `frame` function references `refs` which may be null before first render — guarded ✓. `lastTs` reset: if the tab is hidden, rAF pauses; on return, dt is clamped to 0.05 ✓.
+
+Also: `requestAnimationFrame(frame)` started once at the end of init.
+
+Let me write out the final HTML now. I'll be meticulous with the template literals.
+
+Also one more detail: `<output id="speedOut" for="speed">` — the `for` attribute on output should be a space-separated list of IDs; single ✓.
+
+Final check of ids used in querySelector: spokesRear, spokesFront, crank, legFarOut, legFar, legNearOut, legNear, footFar, footNear, #clouds > g ✓ all present in buildSVG ✓ (make sure `#clank`... typo watch).
+
+Writing the code now.
+
+For the download filename: `pelican-bicycle-${PALETTES[state.paletteIndex].id}.svg`.
+
+Also add `a.rel = 'noopener'`? Not needed for download.
+
+Let me write out the complete file.
+
+One more consideration on `stage.innerHTML` with SVG string: browsers parse `<svg>` in innerHTML correctly (HTML parser has foreign-content handling) ✓.
+
+Also, should I worry that `buildSVG` uses `${SVG_NS}` for xmlns — yes include `xmlns="http://www.w3.org/2000/svg"` ✓.
+
+Write it.
+
+Also for accessibility: buttons have type="button" ✓.
+
+Status initial message: after init, if reducedMotion → message; else "Ready — drag the speed slider or press Download SVG." Good.
+
+Let me write the final code.
+
+Plan settled — writing the file now.

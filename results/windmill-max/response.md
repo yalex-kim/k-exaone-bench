@@ -1,0 +1,463 @@
+
+
+멋진 언덕 위 풍차 장면을 단일 HTML 파일로 만들었습니다. 돌 원통 몸통과 원뿔 지붕, 앞쪽으로 돌출된 축에 달린 4개 날개(매 프레임 실제 회전, 몸통과 교차하지 않음), 5그루 나무, 잔디 언덕과 지면, 그라데이션 하늘, 방향광 그림자, OrbitControls(드래그 회전/휠·핀치 확대)까지 모두 기본 도형과 절차적 셰이더만으로 구성했고, CDN은 importmap으로 고정 버전(three@0.160.0)을 씁니다.
+
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>언덕 위의 풍차 · Three.js</title>
+
+<!-- three.js ES module importmap (CDN) -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #0b1a24;
+    font-family: "Pretendard", "Apple SD Gothic Neo", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  #scene {
+    position: fixed; inset: 0; display: block;
+    width: 100%; height: 100%;
+    touch-action: none; cursor: grab;
+  }
+  #scene:active { cursor: grabbing; }
+  .hud {
+    position: fixed; z-index: 2; top: 18px; left: 18px;
+    max-width: min(310px, calc(100vw - 36px));
+    padding: 14px 16px; border-radius: 14px;
+    background: rgba(9, 22, 31, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    color: #e8f3fa; font-size: 13px; line-height: 1.6;
+    pointer-events: none; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+  .hud h1 { margin: 0 0 6px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  .hud p { margin: 4px 0 0; color: #b9d2e2; }
+  .hud .k {
+    display: inline-block; padding: 1px 6px; margin: 0 1px;
+    border-radius: 6px; font-size: 12px; color: #eaf5fc;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  #fallback {
+    position: fixed; inset: 0; display: none; place-items: center;
+    text-align: center; padding: 24px; font-size: 14px; line-height: 1.7; color: #e8f3fa;
+  }
+  #fallback.show { display: grid; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div class="hud">
+  <h1>언덕 위의 풍차</h1>
+  <p><span class="k">드래그</span>회전 · <span class="k">휠 / 핀치</span>확대·축소</p>
+  <p>돌 몸통 · 원뿔 지붕 · 앞으로 돌출된 축에 달린 4개의 날개(실제로 회전)</p>
+</div>
+
+<div id="fallback">이 장면을 표시하려면 WebGL이 필요합니다.<br>브라우저에서 JavaScript와 WebGL을 활성화했는지 확인해 주세요.</div>
+
+<script type="module">
+(() => {
+  'use strict';
+
+  /* ─────────── 설정값 ─────────── */
+  const CONFIG = {
+    bodyRadius: 3.2,
+    bodyHeight: 9.4,
+    plinthHeight: 0.8,
+    courseRings: 4,
+    roofOverhang: 1.34,   // 지붕 밑면 반지름 = 몸통 반지름 × 값
+    roofHeight: 4.6,
+    hubHeightDrop: 0.3,   // 회전축 높이 (몸통 위쪽에서 아래로 내린 정도)
+    hubOffset: 1.22,      // 회전축 앞쪽 돌출 거리 (몸통 반지름 대비)
+    bladeCount: 4,
+    bladeLength: 7.4,
+    bladeInnerGap: 0.75,
+    bladeSpeed: 1.15,     // rad/s
+    hill: { rx: 17, ry: 6.5, rz: 17, cy: -2.5 },
+    groundSize: 220,
+    skyRadius: 360,
+    sun: { position: [24, 32, 18], intensity: 2.4, shadowHalf: 44, shadowFar: 180 },
+    treeSpots: [
+      { x: -8.2, z: 2.6, scale: 1.15, kind: 'round' },
+      { x: 6.4, z: -5.2, scale: 0.95, kind: 'pine' },
+      { x: 4.6, z: 6.0, scale: 1.05, kind: 'round' },
+      { x: -3.2, z: -5.6, scale: 0.80, kind: 'pine' },
+      { x: 10.4, z: 1.2, scale: 1.00, kind: 'round' }
+    ]
+  };
+
+  const canvas = document.getElementById('scene');
+  const fallback = document.getElementById('fallback');
+
+  /* ─────────── 유틸 ─────────── */
+  // 타원형 언덕(스케일된 구) 표면의 높이
+  function hillY(x, z) {
+    const { rx, ry, rz, cy } = CONFIG.hill;
+    const nx = x / rx;
+    const nz = z / rz;
+    const inside = 1 - nx * nx - nz * nz;
+    return inside > 0 ? cy + ry * Math.sqrt(inside) : 0;
+  }
+
+  const WEIGHT_Z = { up: 'z', axisZ: 'z' }; // (불필요 제거)
+
+  /* ─────────── 하늘 (절차적 그라데이션 돔) ─────────── */
+  function makeSky() {
+    const material = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        topColor: { value: new THREE.Color('#4a97cf') },
+        bottomColor: { value: new THREE.Color('#e6f0f7') }
+      },
+      vertexShader: `
+        varying vec3 vWorldDir;
+        void main() {
+          vWorldDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 bottomColor;
+        varying vec3 vWorldDir;
+        void main() {
+          float t = clamp(vWorldDir.y * 0.5 + 0.5, 0.0, 1.0);
+          gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
+        }`
+    });
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(CONFIG.skyRadius, 40, 28), material);
+    dome.name = 'sky-dome';
+    dome.renderOrder = -1;
+    return dome;
+  }
+
+  /* ─────────── 조명 ─────────── */
+  function makeLights() {
+    const { position, intensity, shadowHalf, shadowFar } = CONFIG.sun;
+
+    const sun = new THREE.DirectionalLight(0xfff2df, intensity);
+    sun.position.set(position[0], position[1], position[2]);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -shadowHalf;
+    sun.shadow.camera.right = shadowHalf;
+    sun.shadow.camera.top = shadowHalf;
+    sun.shadow.camera.bottom = -shadowHalf;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = shadowFar;
+    sun.shadow.bias = -0.0006;
+    sun.target.position.set(0, 0, 0);
+
+    const hemisphere = new THREE.HemisphereLight(0x9ec6ea, 0x5f8a4c, 0.6);
+    return { sun, hemisphere };
+  }
+
+  /* ─────────── 지면 / 언덕 ─────────── */
+  const grassMat = new THREE.MeshStandardMaterial({ color: '#77b363', roughness: 1, metalness: 0 });
+
+  function makeGround() {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(CONFIG.groundSize, CONFIG.groundSize), grassMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.receiveShadow = true;
+    mesh.name = 'ground';
+    return mesh;
+  }
+
+  function makeHill() {
+    const { rx, ry, rz, cy } = CONFIG.hill;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), grassMat);
+    mesh.scale.set(rx, ry, rz);
+    mesh.position.y = cy;
+    mesh.receiveShadow = true;
+    mesh.name = 'hill';
+    return mesh;
+  }
+
+  /* ─────────── 풍차 ─────────── */
+  function makeWindmill() {
+    const R = CONFIG.bodyRadius;
+    const H = CONFIG.bodyHeight;
+    const baseY = CONFIG.plinthHeight;
+    const topY = baseY + H;
+
+    const stoneMat = new THREE.MeshStandardMaterial({ color: '#c6bdb0', roughness: 0.90, metalness: 0.03 });
+    const ringMat = new THREE.MeshStandardMaterial({ color: '#a89d90', roughness: 0.92, metalness: 0.02 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: '#7b5f4c', roughness: 0.95, metalness: 0.02 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: '#8a6a45', roughness: 0.85, metalness: 0.02 });
+    const sailMat = new THREE.MeshStandardMaterial({ color: '#ded6c6', roughness: 0.95, metalness: 0 });
+    const metalMat = new THREE.MeshStandardMaterial({ color: '#98a1a8', roughness: 0.45, metalness: 0.50 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: '#3a342e', roughness: 0.70, metalness: 0.05 });
+
+    const parts = [];
+
+    // 1) 돌 기단
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.16, R * 1.00, 0.8, 30), stoneMat);
+    plinth.position.y = baseY / 2;
+    plinth.castShadow = true;
+    plinth.receiveShadow = true;
+    parts.push(plinth);
+
+    // 2) 돌 원통 몸통 (아래가 살짝 넓은 원뿔대)
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.87, H, 30), stoneMat);
+    tower.position.y = baseY + H / 2;
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    parts.push(tower);
+
+    // 3) 돌 가로줄
+    for (let i = 1; i <= CONFIG.courseRings; i++) {
+      const t = i / (CONFIG.courseRings + 1);
+      const radius = R * (1 - 0.13 * t) + 0.05;
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.16, 30), ringMat);
+      ring.position.y = baseY + H * t;
+      ring.castShadow = true;
+      parts.push(ring);
+    }
+
+    // 4) 원뿔 지붕
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(R * CONFIG.roofOverhang, CONFIG.roofHeight, 30),
+      roofMat
+    );
+    roof.position.y = topY + CONFIG.roofHeight / 2;
+    roof.castShadow = true;
+    roof.receiveShadow = true;
+    parts.push(roof);
+
+    // 5) 꼭대기 장식
+    const finial = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 12), metalMat);
+    finial.position.y = topY + CONFIG.roofHeight + 0.24;
+    finial.castShadow = true;
+    parts.push(finial);
+
+    // 6) 둥근 창(벽 앞으로 살짝 띄운 테)
+    const window = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.13, 12, 16), darkMat);
+    window.rotation.y = Math.PI / 2;
+    window.position.set(0, baseY + H * 0.62, R + 0.16);
+    window.castShadow = false;
+    window.receiveShadow = false;
+    parts.push(window);
+
+    // 7) 앞쪽으로 돌출된 회전축 + 허브 + 칼라
+    const hubY = topY - CONFIG.hubHeightDrop;
+    const hubZ = R * CONFIG.hubOffset;
+
+    const axle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.42, 0.42, hubZ + 0.7, 14),
+      metalMat
+    );
+    axle.rotation.x = Math.PI / 2;          // 축을 Z(앞쪽) 방향으로
+    axle.position.z = (hubZ - 0.7) / 2;     // 몸통 안쪽(-0.7) → 허브까지
+    axle.castShadow = true;
+    parts.push(axle);
+
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 14), darkMat);
+    hub.position.set(0, hubY, hubZ);
+    hub.castShadow = true;
+    parts.push(hub);
+
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.26, 16), metalMat);
+    collar.rotation.x = Math.PI / 2;
+    collar.position.set(0, hubY, hubZ + 0.62);
+    parts.push(collar);
+
+    // 8) 날개 4장 — 몸통/지붕과 겹치지 않도록 축 앞쪽 평면에 장착
+    const blades = new THREE.Group();
+    blades.name = 'blades';
+    blades.position.set(0, hubY, hubZ);
+    for (let i = 0; i < CONFIG.bladeCount; i++) {
+      const blade = new THREE.Group();
+      blade.rotation.z = (i * Math.PI * 2) / CONFIG.bladeCount;
+
+      const inner = CONFIG.bladeInnerGap;
+      const L = CONFIG.bladeLength;
+
+      const spar = new THREE.Mesh(new THREE.BoxGeometry(L, 0.26, 0.15), woodMat);
+      spar.position.x = inner + L / 2;
+      spar.castShadow = true;
+      spar.receiveShadow = true;
+      blade.add(spar);
+
+      const sailLen = L * 0.66;
+      const sail = new THREE.Mesh(new THREE.BoxGeometry(sailLen, 0.72, 0.16), sailMat);
+      sail.position.x = inner + L * 0.30 + sailLen / 2;
+      sail.castShadow = true;
+      sail.receiveShadow = true;
+      blade.add(sail);
+
+      blades.add(blade);
+    }
+    parts.push(blades);
+
+    parts.forEach((p) => group.add(p));
+    return { root: group, blades };
+  }
+
+  /* ─────────── 나무 ─────────── */
+  function makeTree(kind) {
+    const group = new THREE.Group();
+
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.38, 3.4, 8),
+      new THREE.MeshStandardMaterial({ color: '#6d5138', roughness: 0.95, metalness: 0.02 })
+    );
+    trunk.position.y = 1.7;
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    group.add(trunk);
+
+    if (kind === 'pine') {
+      const greens = ['#2f6b3c', '#377a45', '#3f8a4d'];
+      const heights = [2.5, 3.6, 4.7];
+      const radii = [0.85, 0.72, 0.58];
+      heights.forEach((y, i) => {
+        const canopy = new THREE.Mesh(
+          new THREE.ConeGeometry(radii[i], 2.1, 10),
+          new THREE.MeshStandardMaterial({ color: greens[i], roughness: 0.95 })
+        );
+        canopy.position.y = y;
+        canopy.castShadow = true;
+        group.add(canopy);
+      });
+    } else {
+      const blobs = [
+        { x: 0,     y: 2.5, r: 0.95, c: '#4f9c3f' },
+        { x: -0.55, y: 3.1, r: 0.80, c: '#5aab4a' },
+        { x: 0.55,  y: 3.0, r: 0.78, c: '#63b752' },
+        { x: 0,     y: 3.6, r: 0.66, c: '#51a644' }
+      ];
+      blobs.forEach((b) => {
+        const leaf = new THREE.Mesh(
+          new THREE.SphereGeometry(b.r, 12, 10),
+          new THREE.MeshStandardMaterial({ color: b.c, roughness: 0.95, metalness: 0 })
+        );
+        leaf.position.set(b.x, b.y, b.z);
+        leaf.castShadow = true;
+        leaf.receiveShadow = true;
+        group.add(leaf);
+      });
+    }
+    return group;
+  }
+
+  function makeTrees() {
+    return CONFIG.treeSpots.map((spot, i) => {
+      const tree = makeTree(spot.kind);
+      tree.position.set(spot.x, hillY(spot.x, spot.z) - 0.06, spot.z);
+      tree.scale.setScalar(spot.scale);
+      tree.name = 'tree-' + (i + 1);
+      return tree;
+    });
+  }
+
+  /* ─────────── 카메라 / 컨트롤 / 루프 ─────────── */
+  function setupControls() {
+    const controls = new OrbitControls(camera, canvas);
+    controls.target.set(0, 2.6, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 12;
+    controls.maxDistance = 90;
+    controls.minPolarAngle = 0.05;
+    controls.maxPolarAngle = Math.PI / 2;   // 지면 아래로 내려가지 않도록
+    controls.rotateSpeed = 0.9;
+    controls.zoomSpeed = 1.1;
+    return controls;
+  }
+
+  function resize() {
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(w, h, false);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+
+  let lastTime = 0;
+
+  function animate(now) {
+    if (!lastTime) lastTime = now;
+    const dt = Math.min((now - lastTime) / 1000, 0.05); // 탭 전환 등으로 인한 큰 점프 방지
+    lastTime = now;
+
+    controls.update();
+    bladeGroup.rotation.z += CONFIG.bladeSpeed * dt;
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+
+  /* ─────────── 초기화 ─────────── */
+  function init() {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    const caps = renderer.capabilities;
+    if (!caps || (!caps.isWebGL1 && !caps.isWebGL2)) {
+      throw new Error('WebGL을 사용할 수 없습니다.');
+    }
+    if (THREE.SRGBColorSpace) renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color('#cfe6f3');
+
+    camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / Math.max(1, window.innerHeight),
+      0.1,
+      600
+    );
+    camera.position.set(0, 5.4, 30);
+
+    const { sun, hemisphere } = makeLights();
+    scene.add(makeSky(), sun, sun.target, hemisphere);
+    scene.add(makeGround(), makeHill());
+
+    const windmill = makeWindmill();
+    windmill.root.position.y = hillY(0, 0) - 0.12;   // 기단 바닥을 언덕에 살짝 묻기
+    scene.add(windmill.root);
+    bladeGroup = windmill.blades;
+
+    makeTrees().forEach((t) => scene.add(t));
+
+    controls = setupControls();
+    resize();
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', resize);
+
+    requestAnimationFrame(animate);
+  }
+
+  let scene, camera, controls, bladeGroup, renderer;
+
+  try {
+    init();
+  } catch (err) {
+    console.error(err);
+    fallback.classList.add('show');
+  }
+})();
+</script>
+</body>
+</html>
+```

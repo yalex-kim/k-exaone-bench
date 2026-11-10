@@ -1,0 +1,696 @@
+The user wants a single index.html file with Three.js from CDN, using importmap with ES modules. Build a windmill scene: stone cylindrical body, cone roof, 4 blades on a shaft in front of the roof that actually rotate, 5 trees (trunk + leaves), grass ground, sky background, directional light with shadows, OrbitControls for mouse rotation, only basic primitives, no external model files.
+
+Let me write it carefully.
+
+Key points:
+- importmap for '@three' or just use three built-in modules from unpkg/jsdelivr: three, three/addons/controls/OrbitControls.js, three/addons/... Let me use jsdelivr: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js and controls from https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js
+
+Note: io.js... In newer three, the worldToLocal etc. Fine.
+
+Shadow: directional light with shadow camera, renderer.shadowMap.enabled = true, and castShadow/receiveShadow on objects.
+
+Ground: a large circle/plane with grass texture — use a CircleGeometry with many segments, plus a color; maybe add a subtle radial gradient via vertex colors. Simpler: PlaneGeometry rotated -90 with large size and use MeshStandardMaterial with color green. To avoid infinite plane edge visibility, use a big circle with transparent edge... just use CircleGeometry(200, 64) with color 0x6aa84f, and add slight variation with vertex colors maybe not needed. Also could add hill shape: use a sphere segment (like a dome) for the hill. Let's make the ground a slightly domed disc: use CircleGeometry and scale Z slightly? Better: create torus? Keep simple: a flat grass circle with radial gradient-ish vertex colors.
+
+Actually a nice touch: use a SphereGeometry cut for hill. Simpler approach: ground = CircleGeometry radius 200 rotated -90°, with material color. Then place windmill on small hemisphere? Skip; keep flat with a subtle radial gradient patch.
+
+Blades rotation: use group with rotation.y updated in animate loop; but the rotation axis must be along Z (blades facing front = toward camera default). Windmill: body cylinder along Y axis, roof cone, blades mounted on a shaft that sticks out toward the front (i.e., toward +Z? Depends camera). Default camera at... Let's set camera looking at origin from (0, 8, 22) roughly. Then "앞" means toward +Z.
+
+Windmill group at origin with ground at y=0. Body cylinder: CylinderGeometry(3.2, 3.6, 9) placed so bottom at y=0 → translate y=4.5. Roof: ConeGeometry(3.4, 5, 8) at y = 9.5? Body top at 9. Cone below radius 3.4 top radius 0 at top → cone geometry default: base radius 3.4 at y=0, apex at y=4.5 (height 4.5). So place at y=9 → apex at 13.5.
+
+Blades: shaft — cylinder thin along Z axis, at y ≈ 10 (roof-ish height), extending from body front. The cap/hub: rotate around Z axis. Blades: 4 flat boxes arranged radially in plane perpendicular to Z, i.e., each blade box positioned rotated around Z. Blade length ~5, width 0.25, thickness 0.5. Make blades group = cylinder hub (mesh with rotation) plus 4 boxes. Rotate the whole blade group around Z each frame.
+
+Important: blades should not intersect body — put hub at y where body is radius 3.2, so blades are in front of body surface: hub center at z = 3.6 (just outside body radius 3.2). Actually the whole blade plane centered at z = 3.8 so blades sweep radius 5 → they'd sweep behind into... a disk of radius 5 centered at z=3.8: points at radius 5 in the XZ plane, so z ranges from -1.2 to 8.8 → z=-1.2 is behind the body surface at that y? Body radius 3.2, so z=-1.2 is inside the body. Hmm, that's overlapping when blades point backward.
+
+Real windmills: blades attach on front (tower side... actually blades are on the front face of the cap, tower behind). The blade disk would intersect the tower when blades point away — in real windmills blades are on a rotating cap at the front, and the blades do pass in front of tower... Actually in a real windmill, the blades are mounted on a shaft on the front of the cap, and they rotate in a plane roughly vertical; the blades sweep in a circle that's offset forward from the tower axis, so blade tips would overlap the tower sides when pointing back-down? No — real windmills: blades are attached to a big hub on the front of the cap pointing outward; the circle swept is centered on the shaft axis which is offset in front of the tower, so blades never hit the tower as long as the circle's near edge is in front of tower surface. Circle center offset by d, radius r, so nearest point to tower axis is d - r. If d - r > tower radius, no overlap. So d = 4.5 with r = 5 → nearest 0.5, inside tower radius 3.2. Let's increase d: shaft length 6 → d=6.5, r=4.5 → nearest 2 < 3.2 still inside. Hmm, d - r = 2 < 3.2 → overlap. So need r < d - 3.2. With shaft extending 5 from tower surface → d = 8.2, r = 4 → nearest 1.8... no wait nearest point from tower axis = d - r = 8.2 - 4 = 4.2 > 3.2 ✓.
+
+So: shaft from tower center offset z=8.2? That's a long shaft (8 units in front). Alternatively make the blade disk offset d=5, r=1.6 → small blades. Hmm, real windmills do have that look? Real Dutch windmills: blades attached to a hub at the front of the cap, hub offset maybe ~0.5-1m with blade length 10m, and the blades sweep past the tower... they don't hit the tower because the hub is at the front face and blades sweep in a vertical-ish plane angled slightly. Honestly, real ones: the stock (shaft) sticks out from the cap front, hub at end, blades rotate in plane perpendicular to shaft, so circle plane is perpendicular to shaft = roughly vertical plane containing the tower axis. So blades do pass "through" where the tower is... no, because the circle is in a plane at z = d (offset), plane perpendicular to Z axis. Points in the plane have z = d always (circle in XZ... wait).
+
+Let me set up: shaft along Z axis. Blades rotate in the XY plane (perpendicular to Z). Each blade extends radially in X/Y direction from hub at z = d. So blade points have z = d constant — never moving toward the tower in z! Only their x,y vary: x = d_x + r cosθ... no, blade tip coordinates: (r cosθ, r sinθ, d). The tower is at radius 3.2 from Y axis, i.e., x² + z² < 3.2². Blade tip at (r cosθ, y, d) with d=8.2 → distance from tower axis = sqrt((r cosθ)² + 8.2²) ≥ 8.2 > 3.2 ✓. Never overlaps regardless of θ. 
+
+So the blade is a flat disc in the XY plane at z = d. That's the standard "windmill" look. So shaft along Z (horizontal) from tower front, hub at z = d, blades in XY plane. Good, and d can be modest: shaft goes from tower surface (3.2) to d = 5.5, blades radius ~4.5, tips reach y from (10-4.5)=5.5 to 14.5 relative to hub y. Hub height y ≈ 10 (near roof). Blade tips at y=5.5 which is above body radius... at y=5.5 tower radius still 3.2, tip distance from tower axis = sqrt(3.25²... tip x could be 0 → point (0, 5.5, 5.5) → distance from Y axis in XZ = 5.5 > 3.2 ✓ fine.
+
+Good. So blades rotate around Z axis — visually that's a vertical-axis rotation which means blades sweep like a Ferris wheel facing the camera. That's exactly right for a windmill viewed from the front/side. 
+
+Also add slight downward tilt? Real windmill blades tilt slightly. Keep flat, it's fine. Actually a slight cone angle looks nicer: rotate each blade around its own... skip, flat is fine and correct.
+
+Hmm, but with camera orbiting, when camera goes to the side (looking along Z), blades will be edge-on and look like a line — that's realistic. Fine.
+
+Blade shape: use a BoxGeometry thin, or better a couple of them forming a lattice frame like real windmill blades (a spar + frame). Simple: each blade = group with a thin box along radial direction (length 4.5), plus two cross bars near tip for a lattice look. Keep it simple: one box (0.4 wide, 0.35 thick, 4.5 long) rotated, plus a smaller box for tip. Fine, do: blade = long thin box along local X, plus a "sail" box offset. Let's just do a tapered look with BoxGeometry — fine.
+
+Material: stone texture via MeshStandardMaterial color 0xb9b2a6, roughness 0.95, metalness 0. Use cylinders with openEnded false.
+
+Trees: 5 trees at random-ish fixed positions on the ground, trunk CylinderGeometry, leaves — use SphereGeometry or "lollipop": 3-4 spheres of varying size, or a Cone? Spheres clustered look decent. Or use IcosahedronGeometry. SphereGeometry(0.9, 12, 12) with color 0x3f7d3a. Maybe two-tone foliage clusters (darker inner). Add slight random scale/rotation per tree via seeded values (no randomness needed, hardcode array).
+
+Also tree shadows: castShadow true, position a bit outside shadow camera.
+
+Shadow camera: directional light positioned so light comes from upper-front-right: position (10, 14, 8), target at origin-ish (0,0,0). Camera frustum: use helper to fit to scene: set shadow camera left/right/top/bottom based on bounding sphere of objects, or use fixed values ±40 with near/far. Use Shader? Simplest: light.shadow.camera.left=-40; right=40; top=40; bottom=-40; near=1; far=60. And adjust with light position. Also `light.shadow.bias = -0.0005` to avoid acne.
+
+Also ground receives shadow: ground material needs .castShadow=false, receiveShadow default true in newer three (MeshBasicMaterial? no, MeshStandardMaterial receiveShadow true by default? In recent three versions, receiveShadow defaults to true for meshes with material? Actually `receiveShadow` defaults to false historically; in three r150+ I believe default is true... Safer: set explicitly on all.)
+
+Renderer: antialias, shadowMap PCFSoft, toneMapping ACESFilmic (optional), physical camera? Keep defaults with slightly adjusted exposure.
+
+Sky: use Scene.fog? Better: background color + a gradient via a large sphere with BackSide shader? Simpler: renderer.setClearColor gradient? Use a big sphere with MeshBasicMaterial vertex colors (sky gradient) or use three's Sky? Use a large SphereGeometry radius 500 with MeshBasicMaterial vertexColors built from a gradient function — but building vertex colors requires loop over vertices; doable: getPosition attribute, compute y, lerp between two colors. That's a nice touch and no network. Let's do it — moderate code. Alternatively use `new THREE.MeshBasicMaterial({color: 0x87ceeb})` plus fog. I'll do the gradient sphere, it's ~10 lines and gives "하늘색 배경". Also could add a small sun glow — skip or add subtle radial gradient sprite? Keep it: gradient sky sphere.
+
+Note: gradient sphere radius 500 with camera far... OrbitControls target at (0, 2, 0), min distance maybe 8, max 200. Fine.
+
+Also add subtle ground color variation: use CircleGeometry with a radial gradient vertex color: darker green near center? Or lighter dry patch. Simple: base color 0x5f9e42 with slight noise via vertex colors from sin? Keep simple: two-tone radial: near center slightly lighter (0x6fae4a at center, 0x4e8a37 at edge)? Fine, or skip. I'll add a light "grass" variation using vertex colors based on sin patterns — nah, keep clean, just flat green with a slightly darker edge? Flat is fine.
+
+Also mention: cliff/hill? "언덕 위의 풍차" — windmill on a hill. So a raised ground! Make the ground a hemisphere-ish dome: use SphereGeometry(200, 48, 32) cropped? Easiest: create a hemisphere cap via creating a sphere and keeping only top half? Can't easily crop geometry... Actually you can: use `new THREE.SphereGeometry(200, 32, 16)` and scale z? That gives an ellipsoid dome (flattened). Use an ellipsoid: SphereGeometry(200, 32, 16).scale(1, 1, 1) — to make a dome shape: SphereGeometry gives full sphere; scale(1,1.2,1)? still full ball. Instead use half-sphere: `SphereGeometry(200, 32, 16)` then translate... no cropping.
+
+Alternative: create dome via parametric geometry manually with BufferGeometry — 15 lines. Or use a large torus trimmed? Simplest trick: use a sphere scaled to (200, 200*, ...) — a hemisphere can be made by building a SphereGeometry and modifying position attribute: y = max(0, y), then recompute normals. Messing with normals is annoying but doable: recompute normals via computeVertexNormals after clamping y positions — vertices sharing positions... clamping creates flat disc at bottom, normals computed fine by computeVertexNormals (non-indexed). But edges where sphere meets disc would be hard-edged (smooth shading broken) — acceptable-ish but might look odd with flat shading. Honestly, flat grass disc + windmill placed slightly raised, or just a gentle dome via scale: use SphereGeometry(200, 32, 16) with only top? 
+
+Cleaner: write a small function makeHill() building a dome mesh: for i in 0..rings, phi from 0..PI? A hemisphere: radius R, y = R*sin(phi), horizontal radius R*cos(phi), phi from 0 (top) to PI/2 (bottom edge) then flat disc bottom to close — but with open-ended geometry and front/back faces it's fine for shadow receive? A non-closed mesh is fine visually since we won't see the underside (it's buried below y=0... actually the hemisphere sits with base at y=0, and we see underside from below only if camera goes below y=0 — OrbitControls allows rotating below? Controls enablePan? With rotateUp... camera can go below ground if user rotates. Clamp: in controls, set minPolarAngle = 0.02 and target y ~ 0.5? minPolarAngle 0 prevents going below horizon-ish relative to target. Set controls.minPolarAngle = Math.PI*0.02? Actually polar from top; PI/2 = horizon. Setting minPolarAngle small allows near-horizontal, and slightly below ground possible. Use makeHill with flat base and camera minPolarAngle = 0.01 → basically can look at grazing angle. The underside of a hemisphere is a filled disc facing down — fine, invisible from ground level. Good: build hemisphere + base disc? Not needed if camera stays above.
+
+Simplest robust: build the hill as a "dome" BufferGeometry manually:
+
+function createHillGeometry(radius, height, radialSegments=64, side=18):
+positions loop phi from 0..PI/2 steps... Let's do:
+for (let i=0;i<=latSteps;i++){ const phi = i/latSteps * Math.PI/2; const y = height*Math.cos(phi)... } hmm parametrize: y = height * cos(phi) gives top at phi=0 y=height, dropping... radius at angle: r = radius*sin(phi)? Then bottom edge r = radius at phi=PI/2, y=0. Top y=height. Then bottom ring vertices duplicated for the flat base? Skip base.
+
+Indices: standard grid, open at bottom edge → we'd see inside/bottom sides from below. With backside visible, MeshStandardMaterial double-sided by default? MeshStandardMaterial side is FrontSide by default, so from below you'd see through the hill to the ground disc. Not a big deal. Add the base disc by including phi from PI/2 to PI mapping y = -0 (flat) — i.e., generate the bottom cap as a fan of triangles with n+1 vertices at y=0, r from 0..radius, duplicated ring. Let's just include a flat bottom: after the side rows, add center vertex and index triangles. Slight complexity but fine (~15 lines). Or simply rely on the ground plane disc below at y≈0 and the hill above: you can't see under. I'll do side grid with the bottom row at y=0 and just leave it open (backface culling off? set material.side = THREE.DoubleSide). Set DoubleSide — done, cheap. Good, and normals: computeVertexNormals works for non-indexed buffer with duplicated ring vertices, giving a smooth dome-ish shading; at the bottom edge it'll be slightly off, negligible since it meets flat ground (and we can place the base slightly below y=0 intersecting the flat ground disc to hide the seam).
+
+Nice: hill radius 9, height 2.2, centered at origin-ish, and a flat grass disc radius 60 below (y = 0). The seam hidden by overlap? The dome base ring at y=0 exactly, disc at y=0 → z-fighting? They're separate geometries intersecting exactly at y=0 ring... place disc at y = -0.02 to avoid z-fighting, and dome bottom ring at y=0. The disc top at -0.02 vs dome edge at 0 → tiny gap visually? No, tiny gap invisible; and no z-fighting since different depths (0.02 apart, might cause faint shadow acne but not geometry z-fighting). Fine. Even simpler: make disc y = -0.05.
+
+Hmm, but grass disc at y=-0.05 with hill base ring at y=0 and radius 9 → the ring circle sits 0.05 above disc → visible 0.05 gap? It's a 0.05 unit gap at 60-unit radius; from afar invisible-ish, but a thin dark line might show due to the disc's edge-on sliver — 0.05 height sliver, basically invisible. Alternatively make disc overlap slightly upward: give disc geometry scaled... whatever, use y=-0.02. Or make the dome bottom row at y = -0.1 (extend slightly below ground) so it intersects the disc volume → no gap, no z-fighting (different depth, interiors intersect). Do that: bottom ring y = -0.1. But then the dome's bottom "wall" is subterranean — invisible. 
+
+Trees placed on the hill surface: at radius up to ~7, y ≈ hillHeight*cos... place them by hand: compute approximate height via function h(r) = height * sqrt(max(0, 1 - (r/radius)²))? For my parametrization: at radius r, cos(phi)... y = height*cos(phi) and horizontal extent = radius*sin(phi) → r_h = radius sinφ → y = height*sqrt(1-(r/radius)²). Use that to position trees and forks. Nice touch: trees at radius 3.5-7.
+
+Windmill on the hill top: at origin, base slightly below y=0? Place windmill group at y = 0.1 maybe, and hill top is at y=height=2.2 at center → windmill body base should be at hill top: put windmill base at y = height(0.1?) Actually simpler: build hill with height 2.0 centered at (0,0) and place windmill group at y = 1.6 (slightly into the slope so the base looks sunk into the hill). Since at radius 0 the hill top is y=2.0, a cylinder base of 3.4 radius sitting at y=1.6 would poke through the slope at the edges (at r=3.4, hill y = 2.0*sqrt(1-(3.4/9)²)=2.0*0.93=1.86 > 1.6 ✓ so base ring at 1.6 is below the surface 1.86 → body partially buried, good natural look).
+
+But careful: windmill body radius 3.2→3.4, blade hub at y≈10.6 etc. Total height ~14. Tree heights ~4-5 at radius 5-7 → trees lower than windmill, good.
+
+Shadow camera must cover: objects up to y≈15, ground radius 60 → shadow camera ±60 with far 80. Since ground disc radius 60 and hill, shadows on flat area far away will render. Set light dir from (12, 24, 9) normalized, target (0,0,0)? Shadows direction: from upper right front. bias -0.0005.
+
+Also add subtle fog? No, sky sphere handles background; fog would need large values. Skip fog, or use FogExp2 with deep blue to hide ground disc edge at radius 60 (the disc edge might be visible against sky if fog absent, since sky sphere is at 500 radius only, beyond that background color... the disc edge at 60 with sky sphere radius 500 behind → the disc silhouette circle will be clearly visible as a hard edge against gradient sky. Fog would help blend: Fog(0x87ceeb, 40, 120)? Fog color must match sky top color ≈ #87ceeb-ish gradient → fog color ~0x9fc7e0, blending ground edge into sky. Let's add fog: new THREE.Fog(0xa8cbe8, 30, 90) and renderer.toneMapping = NoToneMapping default; fog works in linear? Fog color in linear space; with default color management, Fog color is converted from sRGB→linear automatically? In recent three, `THREE.Fog` colors are handled via ColorManagement (color space is sRGB for fog? There's `fog.color` converted). I think it's fine. Alternatively skip fog and make the sky sphere huge with a soft... no soft. I'll include fog with careful color, low opacity-ish far = 110 which fades to fog color gradually, giving the "haze at distance". Good enough; if slightly off it's fine.
+
+Actually careful: fog makes ground far away blend toward light blue which actually helps hide the disc edge. 
+
+OrbitControls: enableDamping true, minDistance 6, maxDistance 120, maxPolarAngle ~ 1.45, target (0, 3, 0).
+
+Also touch: `renderer.outputColorSpace = THREE.SRGBColorSpace` default in r152+; fine.
+
+Animation loop: requestAnimationFrame with clock delta; blades.rotation.z? Blades group rotated around Z axis: bladesGroup.rotation.z = angle. Since shaft along Z and blades in XY plane, rotate about Z ✓. Note: rotate about Z visually = Ferris wheel facing camera when camera looks down -Z. And rotate the shaft+hub+blades together.
+
+Also add a small "door/window"? Nice touch: dark arched door using a TorusGeometry? A door = thin box recessed — skip or use a flat box slightly darker. Add a window: thin cylinder? Let's add: door as a BoxGeometry slightly rotated? Simple: a dark box on the front of the body (facing ±Z) — but the body is round, a flat door box would float/stick out. Use a slightly inset dark box (scale smaller than body radius would be inside → invisible). Use a TorusGeometry ring arch on the body surface? Complexity. Alternative: cut a window with a cylinder boolean—no. Use a dark sphere-ish? Skip details; color variation enough. Maybe add horizontal stone band lines: not needed.
+
+Alternatively make body materials with slight hue variation between cylinders. Fine.
+
+Let me also add subtle rotation: blades speed 0.6 rad/s? Use 0.8.
+
+Also handle resize.
+
+Also user asked blades "지붕 앞쪽에 붙은 4개의 날개가 실제로 회전" — 4 blades attached to front of roof, actually rotating ✓, and "날개는 몸통과 겹치지 않게 앞으로 튀어나온 축에 달려 있어야" — shaft protruding forward, no overlap with body ✓ (offset z=5.6, radius 4.4 → min distance from tower axis 5.6 > 3.4 ✓; blade tips max radial 4.4 from hub; tip y extent: hub at y=11.4, tips y from 7 to 15.8 — blade at y=7 with z=5.6: distance from tower axis (z=0 line) = 5.6 > 3.4 ✓ since z stays 5.6 constant).
+
+Wait: is the hub plane perpendicular to Z? Blades in XY plane at z = d ✓, so blade far tip in +X direction at x=10, z=5.6 — fine.
+
+But hold on: real windmills have blades in a plane containing the shaft which is horizontal and perpendicular to the tower axis... yes that's what we have. 
+
+Hmm, one nuance: real Dutch windmills' blade planes are roughly vertical plane through the shaft axis, which is what we do (XY plane). ✓
+
+Also the "cap/roof" rotates with the blades in real windmills; the request says roof is cone fixed, blades attached to shaft in front of roof. Keep roof fixed (roof is cone; if it rotated it'd be complex). Fine.
+
+Now materials for blades: wood-ish color 0x8a6a45, roughness 0.8, slight metalness 0.1. Add lattice: for each blade, long box along X length 4.2 (from 0.3 to 4.5), width 0.35, height 0.12; plus a cross spar box perpendicular near tip: BoxGeometry(0.3, 0.35, 0.12)? Let's do: main spar box (4.2, 0.35, 0.15) → then a second box rotated 90° about X placed at x=2.6 with dims (0.35, 4.2?? ) hmm too heavy. Simpler: spar box + a "sail" box: thin plane slightly larger: BoxGeometry(4.4, 3.6, 0.06) offset in x? A sail plane vertical in the blade plane — that'd make each blade look like a flat lattice panel, like a real windmill sail! Real windmill blades have a lattice frame. A flat panel BoxGeometry(4.5, 4.2, 0.08) centered at radius ~2.4 → makes a paddle wheel look. That reads well as windmill blades (like modern turbines, or classic). I'll do: spar (thin long box) + panel (larger thin box, slightly offset outward) → looks like a windmill blade. Plus reduce opacity? no.
+
+Blade group per blade: rotate local around Y? Blade direction radial in XY plane: create geometry along +X then rotate Z by angle, then translate x by hubRadius. Combine: for each of 4 blades: angle = i*Math.PI/2 + Math.PI/4? Use 4 evenly: i*PI/2, offset by PI/4 for diagonal look? Classic windmills have 4 blades at 90° — alignment parallel to axes looks nicer (2 horizontal, 2 vertical from front... no wait, blades in XY plane, when viewed from front you see them as cross). Use i*PI/2 exactly, plus a slight offset 0.3 rad for charm. Fine, use i*(Math.PI/2).
+
+Now the code. Structure:
+
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>언덕 위의 풍차 — Three.js</title>
+<style>... fullscreen canvas, no margin, dark background fallback ...</style>
+</head>
+<body>
+<div id="hint">드래그: 회전 · 휠: 확대/축소 · 우클릭 드래그: 이동</div>  (optional)
+<script type="importmap">
+{"imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+...
+</script>
+</body>
+```
+
+Note: in r160, `three` module exports everything from build/three.module.js ✓ and OrbitControls path 'three/addons/controls/OrbitControls.js' ✓.
+
+Write functions:
+
+```js
+const canvas... renderer
+const scene = new THREE.Scene();
+scene.background = null (we use sky sphere) — actually set scene.background = new THREE.Color(0x8ec6ea) as fallback, sky sphere drawn at 500 radius... but the sky sphere is inside the scene and will be occluded by fog? Fog applies to sky sphere too (fog applies to all objects with fog enabled) → sky sphere fading into fog → since fog color ≈ sky, seamless ✓ nice.
+
+Sky gradient: SphereGeometry(600, 48, 32), vertices position y → color lerp between horizon #bfe3f5 and zenith #4a90d9? Sky top in linear... We'll set material.color.setHSL? Use Color.setRGB with hex numbers and vertexColors. Compute per vertex: t = clamp(y/600, 0, 1) → color = lerp(horizonColor, zenithColor, smoothstep(t)). Then set needsUpdate on color attribute. Also set material.material.color.set(0xffffff) since vertex colors multiply? With vertexColors: true, material.color is multiplied by vertex color → set white to avoid double tinting. Yes: MeshBasicMaterial({vertexColors:true}) and color white default is 0xffffff ✓ (default color is white? MeshBasicMaterial default color is black? THREE.MeshBasicMaterial default color = 0x000000? Let me recall: MeshBasicMaterial({color: 0x000000})? Actually `MeshBasicMaterial` default color is black? Hmm. In three, `MeshBasicMaterial` defines `color = new Color(0xFFFFFF)`? Testing memory: Material base color default for MeshBasicMaterial is black in the sense of `color.set(0xffffff)`?? I believe MeshBasicMaterial's default color is 0xFFFFFF (white) — `MeshBasicMaterial` code: `this.color = new Color(0xffffff);`? I'm fairly sure MeshLambertMaterial default is 0xffffff (white) and MeshBasicMaterial default is 0xffffff as well? Hmm, common knowledge: "MeshBasicMaterial color default is 0xffffff"? Many tutorials set color explicitly. To be safe, explicitly set color: new THREE.Color(0xffffff) → since vertexColors multiply, white is neutral ✓. Also set material.flatShading = false default; with 48x32 sphere shading smooth, gradient looks smooth ✓. Also side: BackSide so inside visible ✓ (camera inside).
+
+Ground: 
+```js
+const GROUND_R = 70; 
+const ground = new THREE.Mesh(new THREE.CircleGeometry(GROUND_R, 96), new THREE.MeshStandardMaterial({color:0x6fae4a, roughness:1, metalness:0}));
+ground.rotation.x = -Math.PI/2; ground.position.y = -0.05; ground.receiveShadow = true;
+```
+Hmm grass color: 0x7fae55? Let's use 0x6cab4a too saturated; use 0x79a94e? I'll use 0x6fa146.
+
+Hill:
+```js
+function createHill(radius, height, radialSegments, heightSegments) -> Mesh with MeshStandardMaterial color slightly lighter 0x78b04f? Different from flat ground slightly lighter/darker for depth: hill 0x7fb356, ground 0x5f9440.
+```
+geometry with DoubleSide, computeVertexNormals.
+
+Windmill group:
+```js
+const windmill = new THREE.Group(); windmill.position.y = HILL_HEIGHT * 0.82 ...
+```
+Actually group position y = 1.6? Set per hill: hill.height = 2.2 → windmill.position.y = 1.7, and group children relative.
+
+Body: CylinderGeometry(3.1, 3.5, 8.6, 24, 1, false) → default cylinder axis Y, height along y from -h/2..h/2 with radius bottom(3.1) top(3.5)? CylinderGeometry(radiusTop, radiusBottom, height,...) args order: (radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded). So new CylinderGeometry(3.05, 3.35, 8.6, 28, 2, false) → slight taper. position y = 4.3 (so from 0.0 to 8.6). material stone: MeshStandardMaterial({color:0xcfc7b8, roughness:0.92, metalness:0.02}) with a couple of darker bands? Add a second material? Skip.
+
+Stone look: add slight color variation via vertexColors? Skip; maybe use a subtle "plaster/stone" color 0xc8c0b0.
+
+Roof: ConeGeometry(3.35, 5.2, 10) base radius 3.35 at y = -2.6 relative → position y = 8.6 + 2.6 = 11.2 → apex at 11.2+2.6 = 13.8. Material darker stone 0xa89e8c roughness 0.9. Maybe add a finial? skip, or small sphere at apex — nice: small sphere radius 0.35 at apex color 0x8d8474.
+
+Door: skip.
+
+Cap? no.
+
+Shaft: CylinderGeometry(0.42, 0.5, 2.6, 12) along Z → rotation: cylinder axis Y default; rotate x by PI/2 → axis Z. Place in blades group at x=0? shaft from z=... The shaft should start inside the body? The shaft axis at y = bladeHubY, z from 3.4 to 5.4 → group position z = 4.4, rotate PI/2 about X, length 2.6 → spans z 3.1..5.7 → starts slightly inside body (3.1<3.5 radius) ✓ hidden inside! Nice: shaft emerges from the body surface. But wait the body is opaque stone so shaft inside is hidden ✓. Shaft material metal-ish? wood: 0x6b4f34 roughness 0.8, metalness 0.15. Add a collar (torus) no.
+
+Hub: CylinderGeometry(0.55, 0.55, 0.35, 16) rotated to axis Z at z = 6.0 → a small disc facing along Z ✓, color darker wood 0x5a4131.
+
+Blades group children: shaft, hub, and 4 blade groups. Blades rotate around Z: since shaft/hub are on the Z axis, rotating the group about Z rotates everything correctly (shaft along Z unaffected) ✓.
+
+Blade i:
+```js
+const blade = new THREE.Group();
+blade.rotation.z = i * Math.PI/2;
+// spar
+const spar = new Mesh(new BoxGeometry(0.34, 4.3, 0.14), woodMat); spar.position.x = 2.3;
+// panel
+const panel = new Mesh(new BoxGeometry(0.08, 4.0, 3.6), woodMat2); panel.position.x = 2.0; // thin in x, extends in y (blade plane)
+```
+Hmm blade radial direction: after rotating about Z by angle, local +X maps to radial direction ✓, local Y is the other in-plane direction ✓, local Z is along shaft ✓ (penetration). So spar long along X (length 4.3 centered at 2.3 → from 0.15 to 4.45) ✓; panel: thin along Z (0.08), 4.0 along Y... wait panel should be the sail: spans radial (X, 4.0) and in-plane perpendicular (Y, 3.6) → BoxGeometry(4.0, 3.6, 0.08) at local (2.2, 0, 0) — but that's centered on... A real windmill sail is a lattice; a flat panel 0.08 thick reads as a sail ✓ with slightly different color (lighter wood 0xb08a5c, roughness 0.85). Actually let me shift panel center radius 2.0 and size (3.6, 3.4, 0.07) → spans 0.2..3.8 ✓ not touching hub (hub r 0.55) ✓ barely. Make panel start at 0.75: BoxGeometry(3.8, 3.6, 0.08) at x=2.65 → spans 0.75..4.55 ✓ touching hub edge slightly, fine.
+
+Spar: literally a thin box along the radial direction gives support. ok.
+
+Blade tip radius ~4.55 → hub at z=6.0, so blade at y=hubY ± 4.55. hubY = 11.3 → tips y from 6.75 to 15.85. Tower: roof apex 13.8 — blade tips at y 15.85 exceed roof apex and stick above into the sky ✓ fine visually? Blade top tip slightly above roof apex looks fine (windmill blades usually extend above the cap). Also check blade top tip doesn't collide with roof cone: tip at (0, 15.85, 6.0) plus in-plane x offset... at y=15.85, z=6.0, the roof (cone base at y=8.6 radius 3.35, apex y 13.8) — at y=15.85 roof doesn't exist. At y=13.8 (apex, radius 0) blade tip distance to axis: point on blade at radius from Y axis ≥ ... blade point (r cosθ, 13.8, 6.0) → distance from tower axis (the Y axis line through origin) = sqrt(x² + 6²) ≥ 6 > 3.35 ✓ no collision. But visually the blade plane at z=6 is in front of the roof cone — fine, no intersection since cone max radius 3.35 at all y above 8.6... cone radius shrinks going up ✓, and always z range within ±3.35 < 6 ✓ no overlap. 
+
+Also blades should probably not be at the same height as roof front... fine.
+
+Now lights:
+```js
+const sun = new THREE.DirectionalLight(0xfff4e0, 2.2);
+sun.position.set(14, 26, 10);
+sun.castShadow = true; sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-60; right=60; top=60; bottom=-60; near=1; far=90;
+sun.shadow.bias = -0.0008; // helps acne
+sun.target.position.set(0,0,0);
+scene.add(sun.target) // DirectionalLight has .target, add to scene for it to aim
+```
+Also a fill light (HemisphereLight 0xb8d0ee / 0x6f8f5a intensity 0.35) and a soft ambient? HemisphereLight is nice for outdoor: skyColor 0x9fc9ee, groundColor 0x6f8a4a, intensity 0.45. Plus a second weaker directional from opposite side? Keep hemisphere + sun + maybe a subtle back light for rim: skip, keep 1 fill.
+
+Note shadow camera ±60 with near 1 far 90 covers ground radius 70 partially — shadows only render within frustum, fine (far areas just have no shadow, acceptable? Might look odd with a hard cut at frustum edge... the frustum is a box 60 in radius around target → shadow map covers ±60 x/y → beyond that, no shadows drawn (receivers outside light's frustum get no shadow → ground beyond r=60 fully lit). Slight inconsistency but subtle since sun dir is oblique; the ground disc is 70 radius, so a small ring lacks shadows. Reduce ground radius to 60 and camera ±60? Cutting it close; make ground radius 55 and camera ±55? Then ground edge visible against sky (with fog it fades). Let's do ground radius 60, shadow camera ±65, far 120, light position (16,30,12) so covered region... fine. Slight shadow pop at edges is acceptable and common. Or scale ground to 45 and fog from 25 to 70 → the disc edge fades into fog before reaching shadow frustum edge? Fog makes distant stuff blend into sky color → hides hard edge ✓. Let's set ground radius 48, fog near 22, far 75, shadow ±45? Objects: windmill height 16 tall, hill radius 9, trees within r 8 → bounding around ±20 mostly; ground shadow needs radius of ~ 30 to cover tree/windmill shadow splat onto the ground which extends ~ 2.5x object height = 40 in the light direction. So shadow camera ±45, near 1, far 120 covers ground disc radius 48? Near-far far 120 ok. And light dir making shadows long: sun at (16,30,12) → direction normalized ~(0.5,0.85,0.35)... shadow offset = objectHeight/directionY * ... For a 16-tall windmill, shadow extends ~16*0.5/0.85 ≈ 9 units horizontally toward -x,-z. Fine within ±45. 
+
+Fog: new THREE.Fog(0xa9c9e4, 20, 70)? Hmm fog color should match sky's horizon color region ≈ #bcd9ea-ish → linear conversion done by three (colors in fog use sRGB → linear with ACES? default working color space linearSRGB, and Fog material uses fog color in that space; three handles conversion: ColorManagement: fog.color is in sRGB by default (since r152, all colors sRGB by default with outputColorSpace sRGB default). Fine, perceptually ok.
+
+Also renderer.toneMapping = THREE.ACESFilmicToneMapping; toneMappingExposure = 1.1? With ACES and sun intensity 2.2, might be dark-ish; set exposure 1.05 and intensity 2.5. Eh, tune roughly: sky gradient + fog gives brightness. I'll set sun 2.4, hemisphere 0.5, exposure 0.95... Let's use tone mapping ACESFilmicToneMapping exposure 1.0.
+
+Camera: PerspectiveCamera(45, w/h, 0.1, 500). Position: (14, 10, 16)? looking at target (0,4,0). OrbitControls target (0,3.5,0), minDistance 8, maxDistance 120, minPolarAngle 0.02 (nearly horizontal), maxPolarAngle PI/2 (can't go below horizon: prevents seeing under hill ✓ nice). enableDamping = true, dampingFactor 0.08. Also controls.screenSpacePanning? default.
+
+Wait: with target at y=3.5 and horizon-ish polar, camera can go below ground level relative to world? polarAngle relative to target: minPolarAngle 0 → camera above target only (looks from top). With maxPolarAngle 1.5 (≈86°), camera near target height → fine.
+
+Hint UI div with pointer-events none, small text bottom-left, fade out? Keep simple: small caption showing instructions, semi-transparent.
+
+Also `document.body` margin 0, overflow hidden, background #0b1220 (before canvas paints, or a fallback if WebGL fails: show message). Add webgl fallback: canvas.getContext('webGL2') else 'webgl' else alert-ish message in div.
+
+Also handle devicePixelRatio: renderer.setPixelRatio(Math.min(devicePixelRatio, 2)).
+
+Animation: 
+```js
+const clock = new THREE.Clock();
+function animate(){ requestAnimationFrame(animate); const t = clock.getDelta(); bladeRotor.rotation.z += t * 0.9; controls.update(); renderer.render(scene, camera);}
+```
+Blade rotor rotation about Z in radians/sec: 0.9 rad/s → ~0.14 rev/s, looks calm. Maybe 1.1.
+
+Also add a subtle "grass" — no.
+
+Trees: array of {x, z, scale, hue?}. Build function createTree(x, y, s, slightTilt?). Trunk: CylinderGeometry(0.28,0.2,R 1.6) with slight taper, color 0x6b4b2f roughness .95, positioned y = 0.8 (relative) — Tree group at ground height computed with hillHeightAt(x,z) but trees are at various radii; simply compute y = hillY(radius) and put trunk base at y (group y = that), plus small offset so trunk base sinks slightly: y -= 0.05. Foliage: 3 spheres: at (0,1.5,0) r 0.85; (0.5,2.0,-0.3) r 0.65; (-0.5, 2.1, 0.35) r 0.6 — group scaled by s. Colors two greens 0x3f7a34 & 0x4f9440? Slight variation per tree to avoid monotony: pick from palette array of colors, and scale variation 1.0-1.35.
+
+Also trunk should be "줄기+잎" per request ✓.
+
+Trees cast shadow: castShadow = true for trunk & foliage meshes; foliage spheres casting shadows → shadow map with many triangles; fine (2048). Maybe set castShadow true only for trunks and foliage... default for sphere fine.
+
+Also trees receiveShadow false (no need). Add leaf "shadowSide"? fine.
+
+Set each mesh position etc. Note foliage sphere segments 12,12 → decent.
+
+Also, to avoid z-fighting with hill: trees at y computed from hill profile; trunk bottom slightly below (y-0.06) ✓.
+
+hillY(r) = HILL.height * Math.sqrt(Math.max(0,1-(r/R)²)) — with my dome parametrization: vertices at phi: y = height*cos(phi)? I wrote earlier horizontal = radius*sin(phi) → y = height*sqrt(1-(r/radius)²) ✓ matches.
+
+Windmill placement: position y = hillY(0) - 0.5? hillY(0) = height = 2.2 → windmill base y = 1.6 (sunk 0.6 into hill top, so the cylinder base is inside the dome ✓ (dome surface at r=3.3: y = 2.2*sqrt(1-0.121)=2.07 > 1.6 ✓ buried ✓).
+
+Let me set HILL = {radius: 11, height: 2.4}. hillY at r=6: 2.4*sqrt(1-0.297)=2.4*0.838=2.01. Trees at r up to 8 → y = 2.4*sqrt(1-0.529)=2.4*0.686=1.65. OK.
+
+Trees radii: 3.2, 5.5, 7.2, 2.6, 6.4 with varying angles, avoiding the windmill (keep trees at r ≥ 2.6 from the mill? mill radius 3.3 → keep trees r ≥ 4 to look nice, or place a couple in front (drawn after? painter order handled by depth). Just place them at r 4.5..8.5 with diverse angles: angles 0.6, 1.9, 3.4, 4.2, 5.5 rad. Since camera orbits, fine.
+
+Now, also "그림자가 드리우는 방향광" ✓ directional light with shadows.
+
+Edge: shadow acne on hill/ground faint — bias -0.0008, normalBias? three has `shadow.bias` only (and filter). Ok.
+
+Also `sun.shadow.camera.zoom = 1`. Also for crispness: mapSize 2048 is fine; 1024 might be enough; use 2048 but note mobile perf — fine.
+
+Also PCFSoftShadowMap default in r150+? renderer.shadowMap.type = THREE.PCFSoftShadowMap (default is PCF in older; set explicitly).
+
+Code for sky gradient:
+
+```js
+function createSky(){
+  const geo = new THREE.SphereGeometry(SKY_RADIUS, 48, 32);
+  const pos = geo.getAttribute('position');
+  const colors = new Float32Array(pos.count*3);
+  const horizon = new THREE.Color(0xa9cfe8), zenith = new THREE.Color(0x4e8fd0);
+  for(let i=0;i<pos.count;i++){
+    const t = Math.max(0, Math.min(1, pos.getY(i)/SKY_RADIUS));
+    const c = horizon.clone().lerp(zenith, t*t);  // t² for nicer falloff
+    colors[i*3]=c.r; ...
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+  const mat = new THREE.MeshBasicMaterial({vertexColors:true, side:THREE.BackSide, fog:true});
+  return new THREE.Mesh(geo,mat);
+}
+```
+Note: colors are linear values when assigned raw → vertex color attribute is linear → fine with outputColorSpace sRGB (renderer converts) — but the hex values I pick are sRGB; putting them raw into linear attribute makes them look washed? Vertex attributes are linear (working color space linearSRGB), so raw 0x4e8fd0 → linear conversion needed. For visual correctness, could do c.setRGB(r,g,b,true) with color space sRGB? THREE.Color.setRGB(v, colorSpace) — in r152+, `color.setRGB(r,g,b, THREE.SRGBColorSpace)`? There's `ColorManagement` — `new THREE.Color().setHex(hex)` converts sRGB→linear by default ✓ since r131+ (colors are stored linear). So use `.setHex(0x4e8fd0)` then read it → linear values ✓ correct. Use that: horizonColor.setHex(0xbfdcf0); zenith.setHex(0x3d86c9; then lerp and assign raw (already linear) ✓.
+
+Fog color similarly: new THREE.Color(0xbfd8ea) auto-converted ✓.
+
+Now write everything out cleanly with named constants and small functions. Also add a couple of subtle details: windmill door? skip. Maybe add a small balcony? skip.
+
+Let me double check CylinderGeometry argument order in code: `new THREE.CylinderGeometry(radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded)`. Default openEnded false ✓. For a straight cylinder, pass equal radii.
+
+Cylinder rotated to lie along Z: mesh.rotation.x = Math.PI/2 ✓ (rotating +90° about X maps Y→? rotation about X by +90°: y→z?? Let's verify: rotation about X by θ: y' = y cosθ - z sinθ, z' = y sinθ + z cosθ. With θ=90°: y' = -z, z' = y. So the cylinder's axis (originally Y, i.e., points varying in y) maps to varying in z' ✓. Radius extends in x (unchanged) ✓ and z'?? points with z varying → y' varying: fine, cylinder axis along Z ✓.
+
+Blur: `rotation.x = Math.PI / 2` on all three? Only shaft & hub (both along Z). Blades' boxes keep default orientation with local X radial ✓ and their own group rotation about Z for angle. Should blade spar also be a "flat plate" standing vertically — yes by default.
+
+Now, do the blades need counter-rotation compensation? No, rotating about world Z is what we want (rotor group).
+
+Also the request says blades attached to roof front ("지붕 앞쪽에 붙은") and shaft protrudes forward without overlapping body ✓.
+
+Write the code now, carefully, ~200 lines. Include a tiny "wind gust" variation: speed = base * (1 + 0.15*Math.sin(t*0.7)) — nice touch, optional; adds realism. Sure, subtle.
+
+Also add slight camera auto-rotate? no, OrbitControls manual. Maybe initial gentle auto orbit off.
+
+Also handle pointer lock? no.
+
+Let me write final code.
+
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>언덕 위의 풍차 · Three.js</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0b1220; }
+  canvas { display:block; }
+  #hud { position:fixed; left:16px; bottom:14px; font: 13px/1.5 system-ui, ...; color:#eaf2ff; background:rgba(10,20,35,.45); padding:8px 12px; border-radius:10px; backdrop-filter: blur(6px); pointer-events:none; user-select:none;}
+  #fallback { ... display:none; }
+</style>
+</head>
+<body>
+<div id="hud">드래그 : 회전 · 휠 : 확대/축소 · 우클릭 드래그 : 이동</div>
+<div id="fallback">이 브라우저에서는 WebGL을 사용할 수 없습니다.</div>
+<script type="importmap"> {...} </script>
+<script type="module"> ... </script>
+</body>
+</html>
+```
+
+Module script content:
+
+```js
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- 상수 ----------
+const HILL = { radius: 11, height: 2.4, radial: 64, vertical: 20 };
+const GROUND_RADIUS = 60;
+const SKY_RADIUS = 700;
+const WIND_ROTATION_SPEED = 1.05; // rad/s
+const SUN_DIR = new THREE.Vector3(0.55, 0.82, 0.35) ... 
+```
+Hmm compute light position from direction: pos = dir * LIGHT_DIST with dir normalized → target origin; light looks at origin → shadows toward -dir ✓. Use sun.position.set(14, 26, 10).normalize()? Just set vector and let it point at origin target: direction = normalize(target - position) = normalize(-14,-26,-10) → light travels toward -x,-y,-z → shadows cast toward +x? Shadow offset direction = -lightDir*... whatever, shadows fall away from light: to +x,+z? light is at (+14, +26, +10) so shadows point toward (-14... i.e., away from light, toward -x,-z. Camera default at (14,10,16)? Then shadows point away from camera-ish. Fine, or put light on the opposite side so shadows come toward the default camera (more visible). Put camera at (-14, 10, 12) and light at (12, 24, -8)?? Let me: light position (12, 24, -6) → shadows toward (-x, +z). Camera start (16, 11, 14) looking -z-ish toward origin... shadows go to -x,+z: partially toward camera ✓ decent. Eh, choose: sun at (10, 22, 6) shadows toward (-10, +... ) hmm direction from light to target = -(10,22,6) normalized → shadow projection along the horizontal component (10,6) → shadows extend toward (-x, -z) direction... I'm overcomplicating: shadows extend in direction opposite to horizontal light vector: (10,6) → shadow points toward (-x,-z)... no: shadow = object + (horizontal light dir) * h/tan? The shadow of a point lies along the direction from light through point, projected on ground: moves away from light: away from (10,22,6) horizontally = toward (-10,-6) i.e., -x,-z. So place camera so shadows point toward camera and slightly sideways: camera at (-18, 9, -16) (i.e., -x,-z side) → shadows come toward the camera ✓ nice and visible. Set target (0, 3, 0). Controls orbit freely anyway; initial view just matters.
+
+Sky gradient: horizon lighter/hazier, zenith deeper blue ✓.
+
+Now writing full code text. Also add subtle ground "grass texture" variation? skip.
+
+Also: `renderer.shadowMap.enabled = true`.
+
+Also, `scene.fog = new THREE.Fog(0xbfd9ec, 18, 70)` — with fog near 18 it starts quite close; windmill height 16 — clouds of fog around base? Fog density: exp2? Linear fog: factor = (far - dist)/(far-near) clamped. far 70, near 18 → at dist 18 factor 1... at dist 40 → (70-40)/52 = 0.58 blend toward fog → hill top blends into haze ✓ nice. But near fog 18 means objects within 18 unaffected ✓ mill is ~16 tall at distance ~20 from camera... The fog blend at distance 20 = 0.038 slight haze ✓ fine. Actually fog applies to fragment distance from camera; camera is ~30 away → slight haze overall fine.
+
+Choose Fog color ≈ sky horizon color 0xc2dcec.
+
+Trees color palette: [0x3f7a3a, 0x4a8a3f, 0x356b31] and trunk 0x6b4a30/0x5f4229 vary.
+
+Tree construction:
+```js
+function createTree({x, z, y, scale, foliage}) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.26*scale,0.34*scale, 1.9*scale, 10), trunkMat);
+  trunk.position.y = 0.95*scale; trunk.castShadow = true;
+  g.add(trunk);
+  const blobs = [[0,1.45,0,0.85],[0.55,2.05,-0.35,0.66],[-0.6,2.15,0.4,0.6]];
+  ...
+}
+```
+with scale multiply sizes ✓ and material shared but per-tree foliage color → create material per tree (cheap).
+
+Wait trunk CylinderGeometry(0.26,0.34,1.9) bottom radius 0.26 top 0.34? Trunk should be wider at base: radiusTop=0.26 (top, y+), radiusBottom=0.34 ✓ (args: radiusTop, radiusBottom) ✓.
+
+Add slight lean: g.rotation.z = small random-ish constant (0.03) for trees? rotation about Z tilts trunk along... rotation about Z rotates the Y axis toward X: yes leans ✓ fine, tiny.
+
+Also castShadow on trunk: yes; foliage spheres castShadow true too (adds softness). Note: 5 trees × 3 spheres = 15 shadow casters + mill + hill(no) — fine for 2048 map.
+
+Now shade: hemisphere light with sky 0x9dc6ea ground 0x7d9a52 intensity 0.5.
+
+Add small "sun glow"? no.
+
+Order of scene graph matters little.
+
+Also could add subtle rotation of the whole mill? no.
+
+Write the final animation with `clock.getDelta()`; guard first frame.
+
+Resize handler with `window.addEventListener('resize', onResize)` and ResizeObserver? simple window resize ✓, also handle devicePixelRatio.
+
+Fallback if WebGL unavailable: `const context = canvas.getContext('webgl2', {antialias:true}) || canvas.getContext('webgl', {antialias:true}) || canvas.getContext('experimental-webgl'); if(!context){ fallback show; return; }`.
+
+Let me now double check cone geometry: ConeGeometry(radiusBottom=3.35, height=5.2, radialSegments=12, heightSegments=1, openEnded=false) → apex at y = height/2 = 2.6, base at -2.6, base radius 3.35 ✓. Position so base sits on body top 8.6 → position.y = 8.6 + 2.6 = 11.2 ✓ apex at 13.8 ✓.
+
+Body cylinder: CylinderGeometry(3.05, 3.35, 8.6, 26, 2) → top radius 3.05, bottom 3.35, so tapering slightly inward at top; hmm at top y=4.3+4.3=8.6 → radius 3.05; cone base radius 3.35 > 3.05 → cone overhangs slightly ✓ looks like a cap ✓ good.
+
+Windmill group y = 1.6: body spans y 1.6..10.2 ✓ roof 11.2..13.8 ✓ hub at y = 9.5? Let me place rotor hub slightly below roof center: hub y = 9.6 (relative to group: 8.0). Blades radius 4.55 → tips y 5.05..14.15 (world). Blade tip at world y 5.05, z=6.0 → distance from tower axis = 6.0 ✓ > body radius 3.35 ✓ no intersection with body ✓ (blade at that point is 2.65 away from surface... it's in front of the body in z; body surface at z=3.35 → blade plane z=6 > 3.35 ✓ clear).
+
+But visually: blades sweeping near the body's lower area at y 5 — since the plane is at z=6, in front of the tower, looks right ✓.
+
+Shaft: from body (z≈3.4?) to hub z=6.0: shaft length 2.4, positioned z = 5.0 relative, rotated so its axis is Z, spans z 3.8..6.2, and starts inside the body (body radius at that y ~3.3) → 3.8 > 3.3 → shaft starts just outside the body surface — tiny gap? Shaft front cap at z=3.8 vs body surface 3.3 → 0.5 gap → visible floating! Fix: length 3.0, center z 5.4 → span 3.9..6.9; hub at 6.9? Let me instead: shaft from z=2.6 (inside body, hidden) to z=6.4: length 3.8, center z=4.5, radius 0.22. Access: shaft inside body is hidden by opaque body ✓ (no z-fighting since fully inside... partially inside: the portion inside the body volume is occluded by the body's surface? The body is a closed cylinder; the shaft pokes into it; with depth testing, the shaft's hidden part is behind the body's front surface? The shaft at z<3.35 is inside the cylinder → the body's front surface (at z=3.35 front side) is drawn... depth: body front surface at that zone is at z≈3.35 (a curved surface; at the shaft's height the band, the front-most body surface is at z=3.35). The shaft portion from 2.6 to 3.35 is behind it → occluded ✓ provided depth test works normally (painter/depth ✓). But careful: at y=8.0 (hub height 8.0 relative to group... let me finalize numbers in code and just be generous: shaft spans z from 2.0 to 6.6, hub at z=6.6 with radius 0.6, blades radius 4.6 from hub. Then min distance from tower axis for blade points: z=6.6 ✓ > 3.35+ ✓ good, and shaft hidden part inside body ✓.
+
+Hub center y (relative): 8.0 → world 9.6.
+
+Blade group: rotor = Group at y=8.0 in windmill coords; children: shaft (mesh), hub (mesh), blades[4]. rotor.rotation.z updated.
+
+Shaft mesh: CylinderGeometry(0.24,0.28,4.4,12) rotated axis Z, position (0,0,4.3) world-local z: spans 2.1..6.5 ✓, radius 0.28 < body 3.35 ✓ inside hidden.
+
+Hub: CylinderGeometry(0.62,0.62,0.4,18) rotated axis Z at z=6.6, color darker.
+
+Blade i:
+```js
+const b = new THREE.Group();
+b.rotation.z = (i * Math.PI) / 2;  // + 흔들림 없이
+const spar = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.34, 0.16), bladeDarkMat); // along X radial, spans -1.8..1.8 local; center at 2.2
+```
+Let me define spar: BoxGeometry(3.7, 0.4, 0.15) centered (2.15,0,0) → from 0.3 to 4.0 radial. Panel: BoxGeometry(3.9, 3.5, 0.07) centered (2.3, 0, 0) → radial 0.35..4.25, vertical ±1.75 ✓ sail. Both castShadow true.
+
+Blade tip radius 4.35 + hub 0.6 → max 4.35? rotor center at z 6.6, blade tip at radius 4.35 from rotor → tip world distance from Y-axis = sqrt(4.35²+6.6²)=7.9 ✓ far.
+
+Blade vertical extent: hub y world 9.6 ± 4.35 → 5.25..13.95 ✓ nice, top just under the roof apex 13.8? Slightly above apex at high position; fine/realistic-ish (blades often reach above cap). Actually blade tip at y=13.95 above apex 13.8 by 0.15 — trivial.
+
+Hmm wait, blades rotating in XY plane means at "12 o'clock" the blade is at max height ✓ that's how real windmills look from the side? Real Dutch windmill blades rotate in a plane that is *tilted* and roughly contains the vertical... The blade wheel plane is perpendicular to the stock which is horizontal-ish → plane vertical ✓ yes as we did.
+
+Good. Now colors/materials final:
+- stone body: 0xc9c1b1, roughness 0.95, metalness 0
+- roof: 0xb0a695 roughness 0.95
+- finial sphere at apex: 0x9c9285 r 0.32, position y = 13.8 (apex) — cone apex at exactly height/2 above its base → top of cone = 13.8 ✓ sphere center y = 13.75, r 0.3 → sticks above ✓.
+- shaft/hub/blade wood: spar/hub 0x5d4531, panel 0xb98f5e? A windmill sail is wood/canvas — canvas lighter 0xc9b48f roughness 0.9, metalness 0.05. ok.
+
+Blade mats: create once: bladeWoodMat, bladeSailMat.
+
+Now write the final code with comments in Korean. Also the user asked to output the full HTML in one code block ✓.
+
+Also double-check importmap + jsdelivr version exists: three@0.160.0 exists (Oct 2024) ✓ path build/three.module.js ✓ and examples/jsm/controls/OrbitControls.js ✓. Maybe use 0.180.0 (Jan 2025)? 0.160 safe. Use "three@0.160.0".
+
+Note: r160 three.module.js default export? `import * as THREE from 'three'` works with the ESM build ✓ (it has named exports and default). ✓
+
+OrbitControls in r160 has no changes breaking API ✓ (enableDamping, update()).
+
+One more: in r155+, `renderer.outputColorSpace` default SRGBColorSpace ✓, and `scene.background` expects color.
+
+Also careful: Sky sphere radius 700 with camera far up to maxDistance 120 → fine. But if OrbitControls max 600? set maxDistance 90 to keep sky visible... sky is at 700, camera max 80 ✓ no clipping issues since sky sphere just needs to be bigger than view distance ✓.
+
+Fog far 70 with sky sphere 700: fog applies to sky sphere vertices too (distance up to 700) → sky fades to fog color at distance ✓ which actually looks like atmospheric haze ✓ and matches ground haze ✓ consistent. But careful: fog near 18 applies to the sky sphere at distance > 18 → most of sky becomes fog color 0xc2dcec → the gradient would be washed out for near/far... sky sphere vertices near the camera (below camera) get heavy fog. Since camera is ~30 above ground, sky sphere points straight up at distance ~670-... all heavily fogged → sky becomes nearly flat fog color, losing the gradient in the top? Fog blends toward fog color as distance→∞, so the whole sky ≈ fog color with slight gradient near the horizon... Hmm that kills the nice gradient. Options: set fog.near larger far bigger (e.g., 40, 120) — sky still fogged. Alternative: don't apply fog to sky sphere: create material with fog:false? MeshBasicMaterial({fog:false}) → sky unaffected by fog, but then ground far edge blends into fog color which differs slightly from sky's horizon color → almost seamless if colors match closely ✓ that's the standard trick. Do that: sky material fog:false, and pick fog color close to sky horizon color. ✓ 
+
+Also the sky sphere is BackSide inside — with fog:false ✓.
+
+Ground far edge at 120 radius? ground radius 60 → fog factor at 60: (70-60)/50=0.2 hmm near 18 far 70 → at dist 60: 0.8 heavy haze → edge invisible ✓. But then the shadow frustum ±45 region beyond 45 gets hazed anyway, fine.
+
+Wait, but the visibility of the ground disc's edge: at distance 60 from camera, fog 0.8 → mostly fog color ✓ hidden. And near the camera the ground is clear green ✓. But the fog near-plane 18 begins hazing objects 18 units away — the mill's base at ~20 distance slightly hazed ✓ fine aesthetic.
+
+Hmm, one risk: ACES tone mapping + fog could look milky. Acceptable.
+
+Alternatively skip fog and shrink ground to 40 radius — the hard edge circle would still be visible if it's a clear silhouette against sky... Since sky sphere is drawn behind and is smooth gradient, a hard-edged flat green disc at r=40 seen from ~30 height: the horizon-ish edge would show as a distinct circle line — slightly artificial but honestly common in simple three.js scenes. Fog is nicer. Keep fog, tuned gently.
+
+Let me also disable fog for... fine as decided: skyMat.fog = false.
+
+Final check of hill geometry function:
+
+```js
+function createHillGeometry({ radius, height, radialSegments, verticalSegments }) {
+  const geo = new THREE.BufferGeometry();
+  const positions = [], indices = [];
+  for (let i = 0; i <= verticalSegments; i++) {
+    const phi = (i / verticalSegments) * (Math.PI / 2); // 0..90°
+    const y = height * Math.cos(phi);
+    const r = radius * Math.sin(phi);
+    for (let j = 0; j <= radialSegments; j++) {
+      const theta = (j / radialSegments) * Math.PI * 2;
+      positions.push(r*Math.cos(theta), y, r*Math.sin(theta));
+    }
+  }
+  for (let i = 0; i < verticalSegments; i++)
+    for (let j = 0; j < radialSegments; j++) {
+      const a = i*(radialSegments+1)+j, b = a+1, c = a+radialSegments+1, d = c+1;
+      indices.push(a, c, b, b, c, d);  // winding?
+    }
+  ...
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+}
+```
+Winding: need consistent orientation; easiest: enable DoubleSide material → winding irrelevant ✓ set side: THREE.DoubleSide on hill material. And normals: computeVertexNormals with indexed geo averages per vertex ✓ (each ring vertex shared by 2 triangles) ✓ smooth-ish. Note duplicated apex row: at phi=0 all j give same point (r=0, y=height) → many coincident vertices → computeVertexNormals gives weird averaging? Coincident vertices with index → seams? They're separate vertices at identical positions; normals computed from face averages per vertex; the apex vertex normals computed from its triangles → point upward-ish varying by j → a fan of distinct normals at same position → could show pinwheel shading artifacts at the apex. Minor; or handle by merging: skip by using geometry with slight... it's tiny (apex region) and normals vary smoothly-ish radially... Actually the apex normals from different j would point in different directions → visible star pattern at apex at high shading contrast. Mitigate by increasing verticalSegments? Doesn't fix. Alternative: translate: instead of phi starting at 0 exactly, clamp r to a minimum of... Simplest fix: after building, `geo.toNonIndexed()`? Doesn't merge positions either (it does average? no). Use `geo.mergeVertices()` — three has BufferGeometryUtils.mergeVertices(geo, 1e-5) from examples (three/addons/utils/BufferGeometryUtils.js) — needs a network import of addon utils file: 'three/addons/utils/BufferGeometryUtils.js' ✓ exists (mergeVertices). But importmap must include the base path which we have ('three/addons/'). Use it: new THREE.BufferGeometryUtils? It's exported as default from that module: `import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'` ✓ (named export mergeVertices exists). Then mergeVertices(geo, 1e-4) ✓ merges coincident apex vertices & normal averaging is recomputed? mergeVertices merges indices and removes duplicate vertices, recomputing normals? It averages normals for merged... I recall mergeVertices merges positions and index, and optionally computes? It does handle normals via `mergeVertices` which uses `geo.computeNormals`? Safe: call geo.computeVertexNormals() after merging.
+
+Simpler alternative avoiding the issue: build the dome with phi from small epsilon... nah. OR: make the hill via a SphereGeometry scaled and only top half — same apex issue (sphere apex is a single vertex in standard SphereGeometry ✓ but that's a full ball).
+
+Hmm, actually easier: build dome as scaled SphereGeometry? Take THREE.SphereGeometry(radius, radial, 8)??? no.
+
+Just use mergeVertices — it's a legit addon, offline after load ✓ fine (single CDN usage as everything else).
+
+Or avoid apex degeneracy: shift phi range to [0.0001, PI/2]? Then top is a small hole... The hole is at the top center; from above you'd see through to... the mill base covers? The mill sits at center covering radius 3.3 of a dome radius 11 — the tiny hole at apex (r ≈ radius*sin(0.0001) ≈ 0.001) is hidden under the mill base? The mill base at y=1.6, apex y=2.4 → hole at 2.4 visible from above around the mill? The mill cylinder covers r<3.35 at that height, and the hole radius 0.001 — invisible ✓ but the normals near the apex ring would be fine ✓. But since the hole is tiny and covered by mill anyway, just skip merging: use epsilon 0.02 rad → r = 0.22 units of hole at top, covered by the mill (base radius 3.35, mill bottom at y 1.6 which is below apex 2.4 → the hole at apex y 2.4 radius 0.22 — is it covered by the mill? Mill cylinder at y 2.4: mill spans y 1.6..10.2 over radius 3.35 ✓ so the hole is inside the mill's cylinder volume? The mill is a solid cylinder occupying r<3.35 for y in [1.6,10.2] ✓ so the hole at (y=2.4, r<0.22) is inside the mill ✓ hidden ✓. But normals there fine anyway. Actually simpler: since DoubleSide and mill covers... but wait, mill base at y=1.6 but the dome surface at r<3.35 is at y ≈ 2.4*sqrt(1-0.096)=2.29 (at r=3.3: 2.4*sqrt(1-0.0965)=2.4*0.9505=2.28 > 1.6 ✓ mill base buried ✓). Yes covered ✓. So epsilon trick works without addons. But a 0.22-radius hole at top with DoubleSide... from above, looking near the mill you'd see... it's inside the mill's volume, occluded by the mill's top? no, mill's top is at y=10.2 way above; the hole region at y=2.4,r<0.22 is inside the mill cylinder → when rendering, the mill is opaque and drawn... occlusion relies on depth: the hole is a gap where the hill geometry has no faces; looking down at the apex from above/outside, ray goes into hole → behind the hole is... nothing until ground/sky → the hole would appear as a tiny dark/sky dot at the apex surrounded by hill surface, but ALSO the mill cylinder is in the same region — the ray at the hole position (r<0.22, y 2.4) passes inside mill volume? The mill occupies r<3.35 for y ∈ [1.6, 10.2] — the ray from above at that (x,z) hits the mill's top cap at y=10.2 first ✓ opacity blocks ✓ hidden ✓ 
+
+So use a tiny epsilon? Eh, honestly mergeVertices is cleaner and it's a standard addon. But extra import risk... it's fine: `import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';` exists in all recent versions (it's in addons/utils). r160 ✓ has it. But careful: BufferGeometryUtils in newer versions exports mergeVertices as named ✓ (yes, it's `export function mergeVertices`). 
+
+I'll do the epsilon approach to keep the dependency minimal... hmm, but with epsilon the apex ring is a small circle of 64 vertices all at radius 0.22, y=2.4*cos(eps)≈2.4 → that's fine normals from that ring are fine and smooth-ish. Wait, but with phi from eps, the "top ring" is a circle of radius 0.22 at y≈2.39999 — the shading looks like a slightly truncated cone tip ✓ utterly fine, and it's buried under the mill ✓. 
+
+Actually careful: is it buried? Mill bottom y=1.6 < 2.4 ✓ and mill radius 3.35 > 0.22 ✓ → yes buried inside the mill's cylinder ✓✓. Good, no addon needed. But the mill cylinder bottom cap at y=1.6 is inside the hill (hill surface at r=3.35 is y=2.28) → the mill's bottom cap is buried ✓ and side surface of mill from 1.6 up: portion from 1.6 to 2.28 is inside the hill ✓ hidden ✓ no z-fighting since mill sticks out of hill surface ✓.
+
+Great. Also add slight eps like 0.03.
+
+Now also `geo.computeVertexNormals()` for the dome: normals at the truncated top ring: fine.
+
+Everything double-checked. Also `hill.position.y = 0` and dome base of ring at y = height*cos(PI/2) = 0 exactly ✓ and ground disc at y = -0.02 ✓ (so ground disc top 0.02 below the dome base ring 0 → tiny gap? The dome base ring is a circle of vertices at y=0 radius 11; below/outside it down to ground disc at -0.02: there'd be a 0.02 gap at the boundary ring showing the disc's edge face... The disc's surface is at y=-0.02, the dome's base circle at y=0 → a 0.02 gap → from a low grazing angle you might see a 0.02 sliver where background shows through at the boundary. Practically invisible? At grazing angle, yes possibly a hairline. Fix: set dome base ring y = -0.05 by starting phi range to PI/2 gives y=0 exactly... instead translate the whole hill down? no. Alternative: make the ground disc y = 0 (same as dome base) → coplanar faces at the ring? They're not coplanar overlapping area — the disc is a flat disc at y=0 and the dome's "bottom" is just a ring of vertices (open bottom, DoubleSide). At the boundary ring, the dome's side surface ends at y=0 and the disc surface is also at y=0 → they meet edge-to-edge, no gap, no z-fighting (different geometry areas meet along an edge) ✓. Z-fighting only if two coplanar faces overlap in screen space, which they don't (dome side is above the disc plane, meeting at its edge) ✓. So set disc y = 0 ✓ and dome base y=0 ✓, no gap. ✓ (earlier I worried unnecessarily; keep it simple: both at y=0.) Hmm, one caveat: the disc's edge (CircleGeometry has a rim edge) vs dome base ring — they coincide ✓ fine visually.
+
+Also ground disc receives shadow ✓, and the mill's buried base casts a small shadow blob at the hill ✓ nice.
+
+Now write it all out. Also add a `#fallback` show/hide and `window.addEventListener('resize')`.
+
+Also add `renderer.setAnimationLoop`? Use rAF manually with clock.getDelta() guarded (first frame delta huge → clamp? Clock.getDelta returns seconds since last call; first call returns large-ish? THREE.Clock starts started=false; getDelta() auto-starts and returns elapsed since page load, could be big (like 0.5s) → rotor jumps — negligible but clamp: `const dt = Math.min(clock.getDelta(), 0.05)`.
+
+Write the finalize: also `controls.enableDamping = true` and in animate: controls.update() after using dampingFactor 0.08.
+
+Also should the rotor speed vary: `const speed = WIND_SPEED * (1 + 0.18 * Math.sin(clock.getElapsedTime() * 0.8));` getElapsedTime available ✓.
+
+Code writing time. I'll be careful with template literals inside the HTML block — fine.
+
+One more consideration: the `hud` div overlapping canvas — pointer-events none ✓. Also OrbitControls right-drag pan requires button 2 ✓ default.
+
+Also prevent context menu? not needed but nice: `canvas.addEventListener('contextmenu', e => e.preventDefault())` — hmm right-drag pan works only if contextmenu prevented? Not necessary, add it anyway.
+
+Final code:
+
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>언덕 위의 풍차 · Three.js</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1220;}
+  canvas{display:block}
+  #hud{position:fixed;left:16px;bottom:14px;padding:8px 12px;border-radius:10px;
+       font:13px/1.5 ui-sans-serif,system-ui,"Segoe UI",sans-serif;color:#eaf3ff;
+       background:rgba(8,18,32,.45);backdrop-filter:blur(6px);pointer-events:none;user-select:none}
+  #fallback{display:none;position:fixed;inset:0;place-items:center;font:15px/1.6 system-ui;color:#ffd9d9;background:#2a0f14}
+</style>
+</head>
+<body>
+<div id="hud">드래그 : 회전 · 휠 : 확대/축소 · 우클릭 드래그 : 화면 이동</div>
+<div id="fallback">이 브라우저에서는 WebGL을 사용할 수 없어 장면을 표시할 수 없습니다.</div>
+
+<script type="importmap">
+{ "imports": {
+   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+ }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ===================== 설정값 ===================== */
+const HILL   = { radius: 11, height: 2.4, radialSegments: 64, verticalSegments: 20 };
+const GROUND = { radius: 60, y: 0 };
+const SKY    = { radius: 700, horizon: 0xbfd9ec, zenith: 0x3f83c4 };
+const FOG    = { color: 0xc6dfee, near: 16, far: 72 };
+const SUN    = { position: new THREE.Vector3(12, 24, 6), intensity: 2.4, mapSize: 2048, shadowFrustum: 52, shadowNear: 1, shadowFar: 140 };
+const WIND = { baseSpeed: 1.05, gustAmount: 0.16, gustFreq: 0.7 };
+const CAMERA = { fov: 45, near: 0.1, far: 600, start: new THREE.Vector3(-20, 11, -24), target: new THREE.Vector3(0, 3.4, 0), minDistance: 7, maxDistance: 90 };
+const TREES = [
+  { x: 6.6,  z:  1.2, scale: 1.15, tint: 0x3f7a3a, lean: 0.05 },
+  ...
+];
+```
+
+Then setup code. Let me write helper `hillHeightAt(radius)`.
+
+I'll write the tree list with positions on the hill: r must ≤ 10: 
+{angle-based}? Just give x,z and compute y via hillHeightAt(sqrt(x²+z²)) and subtract 0.08 to sink slightly.
+
+TREES:
+1. {x: 0, z: -7.4}? that's behind (camera initially at -z)... fine all around: 
+- {x: 6.9, z: 3.1, scale: 1.2, tint: 0x3f7a3a, lean: 0.06}
+- {x: -7.2, z: 4.0, scale: 1.0, tint: 0x4a8a3f, lean: -0.05}
+- {x: 3.6, z: -7.6, scale: 1.1, tint: 0x356b31, lean: 0.04}
+- {x: -4.4, z: -7.1, scale: 0.95, tint: 0x4f9a45, lean: -0.06 }
+- {x: 10.2? no r=10.2 > 11 ok but near edge y small: r=10.2 → y=2.4*sqrt(1-0.852)=0.93: fine, tree on a slope. maybe too far; use {x: -2.2, z: 8.4, scale: 1.05, ...} r=8.7 → y=2.4*sqrt(1-0.606)=1.53 ✓
+- 5th: {x: 8.9, z: -5.2, scale: 0.9, tint: 0x3f7a3a, lean: 0.05} r=10.28 → y=2.4*sqrt(1-0.875)=0.80 — quite low, near base; ok on the slope but let's use {8.3,-5.0} r=9.7 → y = 2.4*sqrt(1-0.791)=1.05 ✓ fine.
+
+Good: 5 trees, none within r<4 of the mill (min |.| = sqrt(9+57.8)? #3: 3.6,-7.6 → r=8.4 ✓; all ≥ 4? #4: -4.4,-7.1 → 8.36 ✓; #5: 8.3,-5 → 9.7 ✓; #2: -7.2,4 → 8.25 ✓; #1: 6.9,3.1 → 7.55 ✓). Good, all around the mill, none overlapping it.
+
+Now writing everything for real. Also remember `THREE.MathUtils` not needed.
+
+Potential pitfall: `new THREE.MeshStandardMaterial` on ground with roughness 1 color 0x6fae4a? Let me choose grass 0x6fae4a and hill 0x7cb356 lighter on top? Usually hill top lighter (sun) — sun from +x side... just pick hill slightly lighter 0x79b352.
+
+Also add a subtle darker ring/edge? no.
+
+Final answer structure: brief 1-2 sentence intro in Korean, then the code block. Keep prose minimal.
+
+For the shaft mesh inside the windmill group: shaft position (0,0,4.3) after rotating about X by 90° — careful: rotating the mesh about X by 90° rotates its geometry (long axis Y → Z) ✓, and its position property applies in the parent's space (rotation doesn't affect position) ✓ so position.z = 4.3 ✓ spans z 2.1..6.5 with length 4.4 ✓.
+
+Hub: CylinderGeometry(0.6,0.6,0.5,18) rotated X90, position z = 6.45 → spans 6.2..6.7 ✓ sticks out beyond shaft end 6.5 ✓ good.
+
+Rotor group at y = 8.0 (windmill-local) with children shaft & hub & blades ✓ all rotating about Z with the rotor ✓ (shaft along Z unaffected visually ✓).
+
+Blade group local transform: rotation.z = i*PI/2, and geometry centered at x=2.2 etc. Since blade group's children positions are in blade-local space with the group rotated about Z about the rotor's origin ✓ correct.
+
+The sail panel z-thickness 0.07 centered → fine.
+
+Also blades should have slight "twist"? skip.
+
+Write out. Also add `rotor.userData`? no.
+
+Also for the cone: add a slight overhang/eave look? no.
+
+I think we're ready. Also the code: create materials with reasonable roughness.
+
+One more check — Shadow: `sun.castShadow = true` requires `sun.shadow` exists ✓ (DirectionalLight has shadow). `sun.target.position.set(0,0,0)` and add target to scene ✓. Also `sun.target` needs updateMatrixWorld each frame? It's updated automatically if in scene graph during render ✓ (objects' matrices updated by renderer? Three auto-updates matrixWorld for objects in the scene during render ✓ yes, renderer._updateScene → world matrices updated... In three, `scene.updateMatrixWorld()` is called by the renderer each frame ✓ which updates children including light targets ✓.)
+
+Shadow camera frustum 52 ± with near 1 far 140: for a spotty check fine.
+
+Also to enable shadow on the mill/trees they cast by default? `castShadow` defaults false → set true on mill children meshes and trees. Also `mesh.castShadow` on the rotor blades (invisible when backfaced? no culling issues) fine.
+
+Also `renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;`
+
+Now, code. Also note: `scene.background = new THREE.Color(0xc6dfee)`? With a sky sphere, background not needed but harmless as fallback for areas beyond sky sphere (none). The problem: background color is used for the canvas clear color — visible only if sky sphere doesn't cover, e.g., if fog disabled... sky covers everything (700 radius > far clip 600? camera far 600 < 700 ✓ always covered) ✓. Set background anyway to horizon color for safety.
+
+Write the final code now.
+
+Also handle `window.devicePixelRatio` changes on zoom — resize handler covers.
+
+Code:
+
+```js
+/* ===================== 렌더링 환경 ===================== */
+const canvas = document.createElement('canvas');  // or document.getElementById
+```
+Use `document.body.appendChild`? In module script (deferred) body exists ✓, but simpler: `<canvas id="scene-canvas"></canvas>`? I didn't add canvas in HTML — add it in HTML: `<canvas id="scene"></canvas>` in body before hud. Then JS `const canvas = document.getElementById('scene')`. Add CSS canvas display block. In the HTML I'll include the canvas element; the fallback canvas creation approach also fine but explicit element cleaner ✓. Also note: body background dark shows before canvas paints ✓.
+
+Resize:
+```js
+function resize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h,true); // allows DPR update
+}
+```
+`setSize(w,h,updateStyle)` with updateStyle true and canvas CSS 100%? Canvas default style from .css: canvas{display:block} width/height attributes set the bitmap; CSS size defaults to attribute size → canvas fills window if we set style width/height 100%? With setSize(w,h,true) three sets canvas.style.width/height in px ✓ if canvas is block in body with no offset ✓ fills viewport ✓ (body margin 0) ✓.
+
+DPR: `renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))` inside resize ✓ (three's setSize handles dpr internally via _doResize: yes setSize uses this._pixelRatio... Actually setSize(w,h,updateStyle) sets canvas width/height = w*dpr? In recent versions: setSize handles pixel ratio: `if (canvas !== undefined) ... this._pixelRatio` — yes, WebGLRenderer.setSize sets drawing buffer size = clientWidth * pixelRatio when updateStyle true. And setPixelRatio called separately affects subsequent setSize calls ✓ standard pattern:
+```js
+function onResize(){ camera.aspect = ...; renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(w,h); }
+```
+✓
+
+OrbitControls construction after camera ✓, `controls.target.copy(CAMERA.target)` and camera.position.copy(start) — OrbitControls.attach puts nothing in scene; it modifies camera via update ✓ need camera in scene graph? no, works standalone ✓ but call controls.update() in loop for damping ✓.
+
+Alright, writing the final full file text now, carefully and completely.
+
+Also, at the very top of module: `const canvas = document.getElementById('scene'); if (!canvas) throw...` skip.
+
+WebGL context with `{ antialias: true, alpha: false, powerPreference: 'high-performance' }`.
+
+Full code below. I'll double check the hill geometry indices winding for DoubleSide material → irrelevant ✓ but normals pointwise fine.
+
+Note on `computeVertexNormals` for a non-indexed?? I'm using indexed with positions array (no separate normals) ✓ computeVertexNormals works on indexed ✓.
+
+Also for the dome, UVs not needed ✓ (no map). StandardMaterial without map ✓ fine.
+
+Also: set `geo.name`? no.
+
+Writing now. Also the tree function: trunk mesh local origin at base (y=0 after group placement at ground y), cylinder centered: set trunk position y = 0.95*s so its center at half height ✓ base at 0 ✓.
+
+Foliage blobs relative to group: center positions multiply by s ✓ sizes multiply by s ✓.
+
+Lean: group.rotation.z = lean — rotates around Z → tilts top toward... rotation about Z maps +Y to... point (0,1,0) → (-sin? ) rotation about Z by θ: x' = x cosθ - y sinθ, y' = x sinθ + y cosθ. (0,1,0) → (-sinθ, cosθ, 0) → tilts toward -x for small positive θ. fine either sign ✓.
+
+Now the blade materials: define once outside the loop:
+```js
+const bladeSparMaterial = new THREE.MeshStandardMaterial({color:0x6a4c33, roughness:0.75, metalness:0.15});
+const bladeSailMaterial = new THREE.MeshStandardMaterial({color:0xc2a878, roughness:0.9, metalness:0.02});
+```
+
+Stone materials, wood materials for tower door? skip door.
+
+Also maybe add a subtle vertical "seam" band on the tower? skip.
+
+Final: the `hud` text and a note in comments for the user about how to run (open in browser; needs internet for CDN). Good.
+
+Double-check the importmap path style: "three/addons/controls/OrbitControls.js" ← import { OrbitControls } from 'three/addons/controls/OrbitControls.js' ✓ resolves via prefix map ✓.
+
+Also jsdelivr npm three@0.160.0 includes examples/jsm/controls/OrbitControls.js ✓ yes (examples are in the npm package).
+
+Write it.
